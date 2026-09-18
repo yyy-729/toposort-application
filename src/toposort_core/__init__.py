@@ -1,5 +1,7 @@
 """拓扑排序核心模块的公共接口。"""
 
+__version__ = "1.0.0"
+
 from .io import export_result, format_result, load_relations
 from .models import DirectedGraph, ParseResult, SolveResult, ValidationIssue
 from .parser import parse_relations
@@ -10,6 +12,7 @@ __all__ = [
     "ParseResult",
     "SolveResult",
     "ValidationIssue",
+    "__version__",
     "export_result",
     "find_cycle",
     "format_result",
@@ -18,4 +21,3 @@ __all__ = [
     "solve_graph",
     "solve_text",
 ]
-

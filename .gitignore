@@ -7,5 +7,5 @@ htmlcov/
 *.egg-info/
 build/
 dist/
+deliverables/
 results.txt
-
