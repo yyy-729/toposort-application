@@ -28,6 +28,10 @@ def main() -> int:
     window._current_graph = parsed.graph
     window.graph_canvas.draw_graph(parsed.graph)
     window._on_solve_finished(solve_text(DEFAULT_SAMPLE))
+    if os.environ.get("TOPOSORT_PREVIEW_DARK") == "1":
+        window.theme_button.setChecked(True)
+    if os.environ.get("TOPOSORT_PREVIEW_TAB") == "insights":
+        window.result_tabs.setCurrentIndex(1)
     window.show()
 
     def capture() -> None:
@@ -41,4 +45,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-

@@ -8,6 +8,9 @@ from matplotlib.backends.backend_qtagg import NavigationToolbar2QT
 from PySide6.QtCore import Qt, QThreadPool
 from PySide6.QtGui import QAction, QKeySequence
 from PySide6.QtWidgets import (
+    QApplication,
+    QCheckBox,
+    QComboBox,
     QFileDialog,
     QFrame,
     QGridLayout,
@@ -22,6 +25,7 @@ from PySide6.QtWidgets import (
     QSpinBox,
     QSplitter,
     QStatusBar,
+    QTabWidget,
     QVBoxLayout,
     QWidget,
 )
@@ -35,12 +39,14 @@ from toposort_core import (
 )
 
 from .graph_view import GraphCanvas
+from .theme import APP_STYLESHEET, DARK_STYLESHEET
 from .workers import SolverTask
 
 DEFAULT_SAMPLE = """<程序设计基础,数据结构>
 <离散数学,数据结构>
 <程序设计基础,面向对象程序设计>
 <数据结构,算法设计>
+<程序设计基础,算法设计>
 <数据结构,数据库原理>
 <算法设计,高级算法原理实践>
 <数据库原理,高级算法原理实践>
@@ -79,6 +85,7 @@ class MainWindow(QMainWindow):
         self._current_result: SolveResult | None = None
         self._current_file: Path | None = None
         self._active_task: SolverTask | None = None
+        self._dark_mode = False
 
         self._build_actions()
         self._build_menu()
@@ -170,9 +177,14 @@ class MainWindow(QMainWindow):
         self.status_pill.setObjectName("statusPill")
         self.status_pill.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
+        self.theme_button = QPushButton("深色模式")
+        self.theme_button.setCheckable(True)
+        self.theme_button.setToolTip("切换深色或浅色主题")
+
         layout.addWidget(logo)
         layout.addLayout(title_box)
         layout.addStretch()
+        layout.addWidget(self.theme_button)
         layout.addWidget(self.status_pill)
         return layout
 
@@ -254,46 +266,76 @@ class MainWindow(QMainWindow):
         title.setObjectName("panelTitle")
         caption = QLabel("箭头由前驱指向后继")
         caption.setObjectName("panelSubtitle")
+        self.layout_combo = QComboBox()
+        self.layout_combo.addItem("分层布局", "layered")
+        self.layout_combo.addItem("力导向布局", "spring")
+        self.layout_combo.addItem("环形布局", "circular")
+        self.layout_combo.setToolTip("切换关系图布局")
+        self.reduction_check = QCheckBox("隐藏冗余边")
+        self.reduction_check.setToolTip("隐藏可由其他路径推导出的关系，不改变先后约束")
+        self.reduction_check.setEnabled(False)
         title_row.addWidget(title)
         title_row.addStretch()
         title_row.addWidget(caption)
+        title_row.addWidget(self.layout_combo)
+        title_row.addWidget(self.reduction_check)
 
         self.graph_canvas = GraphCanvas()
         self.graph_toolbar = NavigationToolbar2QT(self.graph_canvas, self)
         self.graph_toolbar.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        self.node_detail = QLabel("点击图中节点，可高亮它的全部前置和后续节点")
+        self.node_detail.setProperty("role", "hint")
+        self.node_detail.setWordWrap(True)
 
         layout.addLayout(title_row)
         layout.addWidget(self.graph_toolbar)
         layout.addWidget(self.graph_canvas, 1)
+        layout.addWidget(self.node_detail)
         return panel
 
     def _build_result_panel(self) -> QFrame:
         panel, layout = self._new_panel()
         panel.setMinimumWidth(350)
 
+        title_row = QHBoxLayout()
         title = QLabel("分析结果")
         title.setObjectName("panelTitle")
+        self.copy_result_button = QPushButton("复制结果")
+        self.copy_result_button.setEnabled(False)
+        title_row.addWidget(title)
+        title_row.addStretch()
+        title_row.addWidget(self.copy_result_button)
         subtitle = QLabel("结果按节点名称稳定排序")
         subtitle.setObjectName("panelSubtitle")
-        layout.addWidget(title)
+        layout.addLayout(title_row)
         layout.addWidget(subtitle)
 
         cards = QGridLayout()
         cards.setSpacing(8)
         self.node_card = StatCard("节点")
         self.edge_card = StatCard("关系")
-        self.order_card = StatCard("结果")
+        self.order_card = StatCard("已显示")
+        self.total_card = StatCard("方案总数", "-")
+        self.level_card = StatCard("并行阶段", "-")
         self.state_card = StatCard("状态", "待运行")
         cards.addWidget(self.node_card, 0, 0)
         cards.addWidget(self.edge_card, 0, 1)
         cards.addWidget(self.order_card, 1, 0)
-        cards.addWidget(self.state_card, 1, 1)
+        cards.addWidget(self.total_card, 1, 1)
+        cards.addWidget(self.level_card, 2, 0)
+        cards.addWidget(self.state_card, 2, 1)
         layout.addLayout(cards)
 
+        self.result_tabs = QTabWidget()
         self.result_editor = QPlainTextEdit()
         self.result_editor.setReadOnly(True)
         self.result_editor.setPlaceholderText("运行后在此显示拓扑排序结果")
-        layout.addWidget(self.result_editor, 1)
+        self.insight_editor = QPlainTextEdit()
+        self.insight_editor.setReadOnly(True)
+        self.insight_editor.setPlaceholderText("运行后显示并行阶段、最长依赖链等智能分析")
+        self.result_tabs.addTab(self.result_editor, "排序结果")
+        self.result_tabs.addTab(self.insight_editor, "智能分析")
+        layout.addWidget(self.result_tabs, 1)
         return panel
 
     def _connect_signals(self) -> None:
@@ -311,16 +353,26 @@ class MainWindow(QMainWindow):
         self.export_result_button.clicked.connect(self.export_results)
         self.run_button.clicked.connect(self.run_analysis)
         self.input_editor.textChanged.connect(self._mark_input_changed)
+        self.theme_button.toggled.connect(self.toggle_theme)
+        self.layout_combo.currentIndexChanged.connect(self._change_layout)
+        self.reduction_check.toggled.connect(self._toggle_reduction)
+        self.graph_canvas.node_selected.connect(self._show_node_details)
+        self.copy_result_button.clicked.connect(self.copy_results)
 
     def _mark_input_changed(self) -> None:
         had_analysis = self._current_graph is not None or bool(self.result_editor.toPlainText())
         self._current_result = None
         self._current_graph = None
         self._set_export_enabled(False)
+        self.copy_result_button.setEnabled(False)
+        self.reduction_check.setChecked(False)
+        self.reduction_check.setEnabled(False)
         self.status_pill.setText("待重新运行")
         if had_analysis:
             self.result_editor.setPlainText("关系数据已修改，请重新运行分析。")
+            self.insight_editor.clear()
             self.graph_canvas.show_placeholder("数据已修改", "重新运行后生成最新关系图")
+            self.node_detail.setText("点击图中节点，可高亮它的全部前置和后续节点")
             self._update_stats(state="待运行")
 
     def load_sample(self) -> None:
@@ -332,6 +384,7 @@ class MainWindow(QMainWindow):
     def clear_all(self) -> None:
         self.input_editor.clear()
         self.result_editor.clear()
+        self.insight_editor.clear()
         self.input_notice.hide()
         self.graph_canvas.show_placeholder()
         self._current_graph = None
@@ -339,6 +392,10 @@ class MainWindow(QMainWindow):
         self._current_file = None
         self._update_stats()
         self._set_export_enabled(False)
+        self.copy_result_button.setEnabled(False)
+        self.reduction_check.setChecked(False)
+        self.reduction_check.setEnabled(False)
+        self.node_detail.setText("点击图中节点，可高亮它的全部前置和后续节点")
         self.status_pill.setText("等待输入")
         self.statusBar().showMessage("已清空")
 
@@ -372,11 +429,13 @@ class MainWindow(QMainWindow):
             message = "\n".join(str(issue) for issue in parsed.errors)
             self._show_notice(message, error=True)
             self.result_editor.setPlainText("输入格式有误，请修改后重新运行。\n\n" + message)
+            self.insight_editor.setPlainText("输入有效后才能生成智能分析。")
             self.graph_canvas.show_placeholder("输入格式有误", "请根据左侧提示修改关系数据")
             self._current_graph = None
             self._current_result = None
             self._update_stats(state="格式错误")
             self._set_export_enabled(False)
+            self.copy_result_button.setEnabled(False)
             self.status_pill.setText("格式错误")
             self.statusBar().showMessage("输入格式错误")
             return
@@ -388,7 +447,16 @@ class MainWindow(QMainWindow):
             "\n".join(str(issue) for issue in parsed.warnings),
             error=False,
         )
-        self._update_stats(parsed.graph.node_count, parsed.graph.edge_count, 0, "计算中")
+        self._update_stats(
+            parsed.graph.node_count,
+            parsed.graph.edge_count,
+            0,
+            total="…",
+            levels="…",
+            state="计算中",
+        )
+        self.reduction_check.setChecked(False)
+        self.reduction_check.setEnabled(False)
         self._set_busy(True)
 
         task = SolverTask(text, self.limit_spin.value())
@@ -401,25 +469,45 @@ class MainWindow(QMainWindow):
         self._current_result = result
         self.result_editor.setPlainText(format_result(result))
 
+        redundant_edges = result.insights.redundant_edges if result.insights is not None else ()
+
         if result.has_cycle and self._current_graph is not None:
-            self.graph_canvas.draw_graph(self._current_graph, result.cycle)
+            self.graph_canvas.draw_graph(self._current_graph, result.cycle, redundant_edges)
             state = "存在环"
             self.status_pill.setText("检测到环")
-        elif result.is_complete:
-            state = "已完成"
-            self.status_pill.setText("全部完成")
         else:
-            state = "已截断"
-            self.status_pill.setText("达到上限")
+            if self._current_graph is not None:
+                self.graph_canvas.draw_graph(self._current_graph, (), redundant_edges)
+            if result.is_complete:
+                state = "已完成"
+                self.status_pill.setText("全部完成")
+            else:
+                state = "已截断"
+                self.status_pill.setText("达到上限")
+
+        self._populate_insights(result)
+        if result.insights is None:
+            total: str | int = "-"
+            levels: str | int = "-"
+        else:
+            total = (
+                self._compact_number(result.insights.total_order_count)
+                if result.insights.count_is_exact
+                else "大规模"
+            )
+            levels = result.insights.level_count
 
         self._update_stats(
             result.node_count,
             result.edge_count,
             result.output_count,
+            total,
+            levels,
             state,
         )
         self._set_busy(False)
         self._set_export_enabled(True)
+        self.copy_result_button.setEnabled(True)
         self._active_task = None
         self.statusBar().showMessage("分析完成")
 
@@ -429,6 +517,103 @@ class MainWindow(QMainWindow):
         self.status_pill.setText("运行失败")
         self.statusBar().showMessage("运行失败")
         QMessageBox.critical(self, "运行失败", message)
+
+    def _populate_insights(self, result: SolveResult) -> None:
+        insights = result.insights
+        if insights is None:
+            if result.has_cycle:
+                self.insight_editor.setPlainText(
+                    "图中存在有向环，不能生成并行阶段和学习顺序建议。\n\n"
+                    f"检测到的环：{' -> '.join(result.cycle)}"
+                )
+            else:
+                self.insight_editor.setPlainText("当前没有可用的智能分析结果。")
+            self.reduction_check.setChecked(False)
+            self.reduction_check.setEnabled(False)
+            return
+
+        total = (
+            f"{insights.total_order_count}（精确统计）"
+            if insights.count_is_exact
+            else "节点数量较大，为保证响应速度未进行精确总数统计"
+        )
+        lines = [
+            "智能分析摘要",
+            "",
+            f"可行顺序总数：{total}",
+            f"拓扑序是否唯一：{'是' if insights.is_unique else '否'}",
+            f"并行阶段数：{insights.level_count}",
+            f"最大并行宽度：{insights.max_parallel_width}",
+            f"最长依赖链：{' -> '.join(insights.critical_path)}",
+            f"可隐藏冗余关系：{len(insights.redundant_edges)} 条",
+            "",
+            "分层执行建议",
+        ]
+        for index, level in enumerate(insights.levels, start=1):
+            lines.append(f"阶段 {index}：{'、'.join(level)}")
+        lines.extend(
+            [
+                "",
+                "说明：同一阶段内的节点在依赖关系上可以并行。",
+                "若节点代表课程，可把阶段作为学习批次参考，实际安排仍需结合学分等要求。",
+            ]
+        )
+        if insights.redundant_edges:
+            lines.extend(
+                [
+                    "",
+                    "冗余关系：",
+                    *(
+                        f"- {source} -> {target}"
+                        for source, target in insights.redundant_edges
+                    ),
+                ]
+            )
+        self.insight_editor.setPlainText("\n".join(lines))
+        self.reduction_check.setEnabled(bool(insights.redundant_edges))
+
+    def toggle_theme(self, enabled: bool) -> None:
+        self._dark_mode = enabled
+        app = QApplication.instance()
+        if app is not None:
+            app.setStyleSheet(DARK_STYLESHEET if enabled else APP_STYLESHEET)
+        self.theme_button.setText("浅色模式" if enabled else "深色模式")
+        self.graph_canvas.set_dark_mode(enabled)
+        self.statusBar().showMessage("已切换深色模式" if enabled else "已切换浅色模式")
+
+    def _change_layout(self) -> None:
+        mode = self.layout_combo.currentData()
+        if isinstance(mode, str):
+            self.graph_canvas.set_layout_mode(mode)
+            self.statusBar().showMessage(f"已切换为{self.layout_combo.currentText()}")
+
+    def _toggle_reduction(self, enabled: bool) -> None:
+        self.graph_canvas.set_hide_redundant(enabled)
+        if enabled:
+            self.statusBar().showMessage("已隐藏传递冗余关系")
+        else:
+            self.statusBar().showMessage("已显示全部原始关系")
+
+    def _show_node_details(self, node: str) -> None:
+        if not node or self._current_graph is None:
+            self.node_detail.setText("点击图中节点，可高亮它的全部前置和后续节点")
+            return
+        predecessors = sorted(
+            source for source, target in self._current_graph.edges if target == node
+        )
+        successors = list(self._current_graph.adjacency[node])
+        before = "、".join(predecessors) if predecessors else "无"
+        after = "、".join(successors) if successors else "无"
+        self.node_detail.setText(
+            f"当前节点：{node}　|　直接前驱：{before}　|　直接后继：{after}"
+        )
+
+    def copy_results(self) -> None:
+        text = self.result_editor.toPlainText()
+        if not text:
+            return
+        QApplication.clipboard().setText(text)
+        self.statusBar().showMessage("排序结果已复制到剪贴板")
 
     def _show_notice(self, message: str, *, error: bool) -> None:
         if not message:
@@ -473,12 +658,24 @@ class MainWindow(QMainWindow):
         nodes: int = 0,
         edges: int = 0,
         orders: int = 0,
+        total: str | int = "-",
+        levels: str | int = "-",
         state: str = "待运行",
     ) -> None:
         self.node_card.set_value(nodes)
         self.edge_card.set_value(edges)
         self.order_card.set_value(orders)
+        self.total_card.set_value(total)
+        self.level_card.set_value(levels)
         self.state_card.set_value(state)
+
+    @staticmethod
+    def _compact_number(value: int | None) -> str:
+        if value is None:
+            return "-"
+        if value < 1_000_000:
+            return f"{value:,}"
+        return f"{value:.2e}"
 
     def export_results(self) -> None:
         if self._current_result is None:

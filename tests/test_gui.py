@@ -5,6 +5,7 @@ import tempfile
 import time
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
@@ -39,6 +40,23 @@ class GuiTests(unittest.TestCase):
         canvas.draw_graph(graph, ("A", "B", "A"))
         self.assertTrue(canvas.has_graph)
 
+    def test_graph_canvas_layout_reduction_theme_and_node_selection(self) -> None:
+        canvas = GraphCanvas()
+        graph = DirectedGraph.from_edges([("A", "B"), ("B", "C"), ("A", "C")])
+        canvas.draw_graph(graph, redundant_edges=(("A", "C"),))
+        canvas.set_hide_redundant(True)
+        self.assertNotIn(("A", "C"), canvas._network.edges)
+
+        for mode in ("spring", "circular", "layered"):
+            canvas.set_layout_mode(mode)
+            self.assertTrue(canvas.has_graph)
+        canvas.set_dark_mode(True)
+
+        axis = canvas.figure.axes[0]
+        x, y = axis.transData.transform(canvas._positions["A"])
+        canvas._on_mouse_press(SimpleNamespace(inaxes=axis, x=x, y=y))
+        self.assertEqual(canvas.selected_node, "A")
+
     def test_main_window_applies_result(self) -> None:
         window = MainWindow()
         window.input_editor.setPlainText(DEFAULT_SAMPLE)
@@ -49,7 +67,10 @@ class GuiTests(unittest.TestCase):
         window._on_solve_finished(result)
 
         self.assertEqual(window.order_card.value_label.text(), str(result.output_count))
+        self.assertEqual(window.total_card.value_label.text(), "22")
+        self.assertEqual(window.level_card.value_label.text(), "4")
         self.assertIn("拓扑排序结果", window.result_editor.toPlainText())
+        self.assertIn("分层执行建议", window.insight_editor.toPlainText())
         self.assertTrue(window.export_result_button.isEnabled())
         window.close()
 
@@ -111,6 +132,16 @@ class GuiTests(unittest.TestCase):
         self.assertFalse(window.export_result_button.isEnabled())
         self.assertFalse(window.export_graph_button.isEnabled())
         self.assertEqual(window.state_card.value_label.text(), "待运行")
+        window.close()
+
+    def test_theme_toggle_and_copy_result(self) -> None:
+        window = MainWindow()
+        window._on_solve_finished(solve_text("<A,C>\n<B,C>"))
+        window.theme_button.setChecked(True)
+        self.assertEqual(window.theme_button.text(), "浅色模式")
+
+        window.copy_results()
+        self.assertIn("拓扑排序结果", QApplication.clipboard().text())
         window.close()
 
 
