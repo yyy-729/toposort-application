@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
+import os
 import sys
 from collections.abc import Sequence
 from pathlib import Path
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, QTimer
 from PySide6.QtGui import QFont, QFontDatabase
 from PySide6.QtWidgets import QApplication
 
@@ -49,6 +50,15 @@ def main(argv: Sequence[str] | None = None) -> int:
     app = create_application(argv)
     window = MainWindow()
     window.show()
+
+    auto_close = os.environ.get("TOPOSORT_AUTO_CLOSE_MS", "").strip()
+    if auto_close:
+        try:
+            delay = max(1, int(auto_close))
+        except ValueError:
+            delay = 1000
+        QTimer.singleShot(delay, window.close)
+
     return app.exec()
 
 
