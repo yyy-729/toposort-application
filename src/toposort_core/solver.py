@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from .analysis import analyze_graph
 from .models import DirectedGraph, SolveResult
 from .parser import parse_relations
 
@@ -62,6 +63,7 @@ def solve_graph(graph: DirectedGraph, max_results: int = 1000) -> SolveResult:
             stop_reason="cycle",
         )
 
+    insights = analyze_graph(graph)
     indegrees = dict(graph.indegrees)
     initial_available = tuple(sorted(node for node, degree in indegrees.items() if degree == 0))
     orders: list[tuple[str, ...]] = []
@@ -109,6 +111,7 @@ def solve_graph(graph: DirectedGraph, max_results: int = 1000) -> SolveResult:
         node_count=graph.node_count,
         edge_count=graph.edge_count,
         stop_reason="limit" if overflow_found else "completed",
+        insights=insights,
     )
 
 
@@ -140,4 +143,5 @@ def solve_text(text: str, max_results: int = 1000) -> SolveResult:
         stop_reason=result.stop_reason,
         errors=(),
         warnings=parsed.warnings,
+        insights=result.insights,
     )

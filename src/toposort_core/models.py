@@ -90,6 +90,26 @@ class ParseResult:
 
 
 @dataclass(frozen=True, slots=True)
+class GraphInsights:
+    """从 DAG 中得到的智能分析结果。"""
+
+    levels: tuple[tuple[str, ...], ...]
+    critical_path: tuple[str, ...]
+    is_unique: bool
+    total_order_count: int | None
+    count_is_exact: bool
+    redundant_edges: tuple[tuple[str, str], ...]
+
+    @property
+    def level_count(self) -> int:
+        return len(self.levels)
+
+    @property
+    def max_parallel_width(self) -> int:
+        return max((len(level) for level in self.levels), default=0)
+
+
+@dataclass(frozen=True, slots=True)
 class SolveResult:
     """拓扑排序求解结果。"""
 
@@ -102,6 +122,7 @@ class SolveResult:
     stop_reason: StopReason
     errors: tuple[ValidationIssue, ...] = ()
     warnings: tuple[ValidationIssue, ...] = ()
+    insights: GraphInsights | None = None
 
     @property
     def output_count(self) -> int:

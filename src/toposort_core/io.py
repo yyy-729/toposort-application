@@ -46,6 +46,21 @@ def format_result(result: SolveResult) -> str:
         status = "已完成全部枚举" if result.is_complete else "已达到结果上限，未完全枚举"
         lines.append(f"状态：{status}")
         lines.append(f"已输出结果数：{result.output_count}")
+        if result.insights is not None:
+            total = (
+                str(result.insights.total_order_count)
+                if result.insights.count_is_exact
+                else "节点较多，未进行精确统计"
+            )
+            lines.extend(
+                [
+                    f"可行顺序总数：{total}",
+                    f"拓扑序唯一：{'是' if result.insights.is_unique else '否'}",
+                    f"并行层级数：{result.insights.level_count}",
+                    f"最长依赖链：{' -> '.join(result.insights.critical_path)}",
+                    f"冗余关系数：{len(result.insights.redundant_edges)}",
+                ]
+            )
         lines.append("")
         lines.extend(
             f"{index}. {' -> '.join(order)}" for index, order in enumerate(result.orders, start=1)
@@ -57,4 +72,3 @@ def format_result(result: SolveResult) -> str:
 def export_result(path: str | Path, result: SolveResult) -> None:
     """使用 UTF-8 保存求解结果。"""
     Path(path).write_text(format_result(result), encoding="utf-8")
-
