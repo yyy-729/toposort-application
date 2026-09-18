@@ -1,74 +1,116 @@
-# 拓扑排序核心模块
+# 拓扑序设计器
 
-本目录是“高级算法原理实践”中技术一负责的核心功能。它提供关系解析、环检测、拓扑排序枚举、结果导出和命令行演示，不包含图形界面和关系图绘制。
+“高级算法原理实践”本地桌面应用。程序使用 Python 3.12 和 PySide6 开发，能够输入或导入有向关系、绘制关系图、枚举多种拓扑排序、检测环并导出结果。
 
-当前交付版本：`1.0.0`
+当前完整应用版本：`2.0.0`
 
-## 环境
+![应用界面预览](docs/images/应用界面预览.png)
 
+## 主要功能
+
+- 图形界面输入 `<前驱节点,后继节点>` 关系
+- 从 UTF-8 TXT 文件导入关系数据
+- 分层显示有向关系图
+- PNG、SVG、PDF 关系图导出
+- 尽可能枚举全部拓扑排序结果
+- 可配置结果数量上限，并明确标记是否完整枚举
+- TXT 排序结果导出
+- 自环和普通有向环检测，并高亮具体环路
+- 中文逗号、括号错误、空节点、重复关系等异常提示
+- 后台执行计算，避免界面在枚举时失去响应
+
+## 运行环境
+
+- Windows 10 或 Windows 11
 - Python 3.12
-- 运行时只使用 Python 标准库
-- 开发检查使用 pytest、pytest-cov 和 Ruff
+- PySide6 6.11.2
+- NetworkX 3.6.1
+- Matplotlib 3.11.2
 
-本机普通 `python` 可能指向其他 Python，请统一使用 `py -3.12`。
+本机普通 `python` 可能指向其他版本，请统一使用 `py -3.12`。
 
-## 安装开发环境
+## 最简单的运行方法
+
+1. 安装 Python 3.12。
+2. 双击 `安装依赖.bat`。
+3. 双击 `启动应用.bat`。
+
+也可以在 VS Code 的 PowerShell 终端执行：
 
 ```powershell
-py -3.12 -m venv .venv
-.\.venv\Scripts\Activate.ps1
-py -3.12 -m pip install -e ".[dev]"
+py -3.12 -m pip install -r requirements.txt
+$env:PYTHONPATH=(Resolve-Path .\src).Path
+py -3.12 -m toposort_app
 ```
 
-## 命令行演示
+程序启动后已经提供一组课程关系示例，点击“运行分析”即可看到关系图和多个拓扑排序结果。
 
-```powershell
-py -3.12 -m toposort_core examples\multiple.txt --limit 1000 --output results.txt
+## 输入格式
+
+每行输入一个关系，必须使用西文尖括号和西文逗号：
+
+```text
+<程序设计基础,数据结构>
+<离散数学,数据结构>
+<数据结构,算法设计>
 ```
 
-如果暂时无法联网安装开发依赖，也可以直接从源码运行：
+`<a,b>` 表示 a 必须在 b 之前。
+
+## 命令行核心演示
+
+图形界面之外，核心模块仍可独立运行：
 
 ```powershell
 $env:PYTHONPATH=(Resolve-Path .\src).Path
 py -3.12 -m toposort_core examples\multiple.txt --limit 1000 --output results.txt
-py -3.12 -m unittest discover -s tests -v
 ```
 
-退出状态：
+命令行退出状态：
 
 - `0`：成功
 - `2`：输入格式错误
 - `3`：存在环
 - `4`：文件读取或结果写入失败
 
-## 提供给技术二的接口
+## 技术二集成接口
 
 ```python
-from toposort_core import export_result, solve_text
+from toposort_core import solve_text
 
-text = "<离散数学,数据结构>\n<数据结构,算法设计>"
-result = solve_text(text, max_results=1000)
-
-if result.errors:
-    print(result.errors)
-elif result.has_cycle:
-    print(result.cycle)
-else:
-    print(result.orders)
-    export_result("results.txt", result)
+result = solve_text(input_text, max_results=1000)
 ```
 
-技术二只需要调用 `solve_text()` 获取结果，或调用 `export_result()` 导出结果，不需要修改核心模块内部代码。
+界面使用 `result.errors`、`result.warnings`、`result.cycle`、`result.orders` 和 `result.is_complete` 显示对应状态，不需要修改核心模块内部代码。
 
-也可以安装交付包中的 wheel：
+## 项目检查
+
+安装开发依赖：
 
 ```powershell
-py -3.12 -m pip install toposort_core-1.0.0-py3-none-any.whl
+py -3.12 -m pip install -r requirements-dev.txt
 ```
 
-## 检查
+运行检查：
 
 ```powershell
 py -3.12 -m ruff check .
-py -3.12 -m pytest --cov=toposort_core --cov-fail-under=90
+$env:QT_QPA_PLATFORM="offscreen"
+py -3.12 -m pytest
 ```
+
+生成界面预览图：
+
+```powershell
+$env:QT_QPA_PLATFORM="offscreen"
+py -3.12 scripts\render_app_preview.py artifacts\app_preview.png
+```
+
+## 目录说明
+
+- `src/toposort_core/`：关系解析、环检测、拓扑排序和结果导出
+- `src/toposort_app/`：PySide6 图形界面和关系图显示
+- `tests/`：核心、命令行和图形界面自动化测试
+- `examples/`：正常、多结果、有环和错误格式示例
+- `docs/`：技术说明、测试清单和界面预览
+

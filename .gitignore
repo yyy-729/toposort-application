@@ -8,4 +8,5 @@ htmlcov/
 build/
 dist/
 deliverables/
+artifacts/
 results.txt
