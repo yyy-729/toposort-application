@@ -2,7 +2,10 @@
 __pycache__/
 *.py[cod]
 .pytest_cache/
+.ruff_cache/
+.mypy_cache/
 .coverage
+coverage.xml
 htmlcov/
 *.egg-info/
 build/
@@ -10,4 +13,16 @@ dist/
 deliverables/
 artifacts/
 tmp/
+本地视频材料/
+.vscode/
+.idea/
+.env
+.env.*
+*.log
+*.tmp
+*.bak
+*.whl
+*.zip
+Thumbs.db
+Desktop.ini
 results.txt
