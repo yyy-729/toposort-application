@@ -6,9 +6,6 @@ title Topological Sort Application
 set "APP_PYTHON=%CD%\.venv\Scripts\python.exe"
 if not exist "%APP_PYTHON%" goto :dependencies_missing
 
-"%APP_PYTHON%" -c "import PySide6, networkx, matplotlib"
-if errorlevel 1 goto :dependencies_missing
-
 set "PYTHONPATH=%~dp0src"
 "%APP_PYTHON%" -m toposort_app
 set "APP_EXIT_CODE=%ERRORLEVEL%"
@@ -30,6 +27,7 @@ exit /b 1
 :app_failed
 echo.
 echo The application stopped with error code %APP_EXIT_CODE%.
+echo If dependencies are missing, run install_dependencies.bat first.
 echo Review the Python error messages above before closing this window.
 echo.
 pause

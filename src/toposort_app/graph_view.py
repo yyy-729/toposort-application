@@ -257,8 +257,18 @@ class GraphCanvas(FigureCanvasQTAgg):
         axis.axis("off")
 
         edge_colors, edge_widths = self._edge_style(network)
+        if self._graph.node_count >= 13:
+            minimum_size, maximum_size, character_factor = 1200, 3000, 48
+        elif self._graph.node_count >= 8:
+            minimum_size, maximum_size, character_factor = 1550, 4600, 65
+        else:
+            minimum_size, maximum_size, character_factor = 1900, 8200, 85
         node_sizes = [
-            min(8200, max(1900, 800 + len(node) * len(node) * 85)) for node in network.nodes
+            min(
+                maximum_size,
+                max(minimum_size, 800 + len(node) * len(node) * character_factor),
+            )
+            for node in network.nodes
         ]
         font_size = 8 if self._graph.node_count > 24 else 9
 

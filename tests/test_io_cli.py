@@ -7,7 +7,14 @@ import unittest
 from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
 
-from toposort_core import DirectedGraph, export_result, format_result, solve_graph, solve_text
+from toposort_core import (
+    DirectedGraph,
+    export_result,
+    format_result,
+    load_relations,
+    solve_graph,
+    solve_text,
+)
 from toposort_core.cli import _positive_integer, main
 
 
@@ -48,6 +55,19 @@ class IoAndCliTests(unittest.TestCase):
             content = output.read_text(encoding="utf-8")
 
         self.assertIn("课程一 -> 课程二", content)
+
+    def test_taskbook_figure1_example_is_valid(self) -> None:
+        project_root = Path(__file__).resolve().parents[1]
+        parsed = load_relations(project_root / "examples" / "taskbook_figure1.txt")
+
+        self.assertTrue(parsed.is_valid)
+        self.assertEqual(parsed.node_count, 15)
+        self.assertEqual(parsed.edge_count, 16)
+        assert parsed.graph is not None
+        result = solve_graph(parsed.graph, max_results=100)
+        self.assertFalse(result.has_cycle)
+        self.assertEqual(result.output_count, 100)
+        self.assertFalse(result.is_complete)
 
     def test_cli_success_and_output(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

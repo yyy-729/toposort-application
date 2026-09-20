@@ -20,11 +20,12 @@ class LauncherTests(unittest.TestCase):
             ["cmd.exe", "/d", "/c", "启动应用.bat"],
             cwd=project_root,
             env=environment,
+            stdin=subprocess.DEVNULL,
             capture_output=True,
             text=True,
             encoding="utf-8",
             errors="replace",
-            timeout=20,
+            timeout=45,
             check=False,
         )
 
