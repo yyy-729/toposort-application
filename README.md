@@ -144,10 +144,52 @@ $env:QT_QPA_PLATFORM="offscreen"
 py -3.12 scripts\render_app_preview.py artifacts\app_preview.png
 ```
 
-## 目录说明
+## 项目目录结构
 
-- `src/toposort_core/`：关系解析、环检测、拓扑排序和结果导出
-- `src/toposort_app/`：PySide6 图形界面和关系图显示
-- `tests/`：核心、命令行和图形界面自动化测试
-- `examples/`：正常、多结果、有环和错误格式示例
-- `docs/`：技术说明、测试清单和界面预览
+```text
+toposort-application/
+├─ src/
+│  ├─ toposort_core/           # 核心算法模块
+│  │  ├─ parser.py             # 关系文本解析与格式检查
+│  │  ├─ models.py             # 有向图和结果数据类型
+│  │  ├─ solver.py             # 环检测与多拓扑序枚举
+│  │  ├─ analysis.py           # 方案计数、分层、关键路径和冗余边分析
+│  │  ├─ io.py                 # 文件读取与结果导出
+│  │  └─ cli.py                # 命令行入口
+│  └─ toposort_app/            # 桌面应用模块
+│     ├─ main_window.py        # 主窗口和交互流程
+│     ├─ graph_view.py         # 关系图绘制与节点交互
+│     ├─ workers.py            # 后台计算任务
+│     ├─ theme.py              # 深浅色界面样式
+│     └─ main.py               # 图形界面启动入口
+├─ tests/                      # 核心、命令行、界面和启动测试
+├─ examples/                   # 正常、多结果、有环、错误及图1示例数据
+├─ docs/
+│  ├─ images/                  # 正式界面与关系图截图
+│  ├─ 技术一核心功能说明.md
+│  ├─ 完整应用交付说明.md
+│  └─ 测试人员验收清单.md
+├─ scripts/
+│  └─ render_app_preview.py    # 界面预览图生成脚本
+├─ 安装依赖.bat                # Windows双击安装入口
+├─ 启动应用.bat                # Windows双击启动入口
+├─ requirements.txt            # 运行依赖
+├─ requirements-dev.txt        # 测试与代码检查依赖
+├─ pyproject.toml              # Python项目配置
+├─ 高级算法原理实践-实践说明书.md
+├─ 高级算法原理实践-任务说明书.md
+├─ 项目现状.md
+├─ 优化方向文档.md
+├─ 2026年 高级算法原理实践 指导书（任务书）.pdf
+├─ 软件算法综合设计项目报告模板.doc
+├─ 会议记录-模版.doc
+└─ README.md
+```
+
+其中：
+
+- `src/toposort_core/`可以脱离图形界面单独测试和调用。
+- `src/toposort_app/`只负责界面、绘图和用户操作，通过公共接口调用核心模块。
+- `examples/taskbook_figure1.txt`是任务书图1对应的关系数据。
+- `docs/images/`中的图片可以直接用于项目报告和阶段展示。
+- `.venv/`、缓存、构建产物、临时截图和`本地视频材料/`已被Git忽略，不会上传到仓库。
