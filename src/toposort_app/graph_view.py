@@ -1,15 +1,19 @@
-"""支持交互高亮和多布局的关系图组件。"""
+"""支持自适应布局、交互高亮和高清导出的关系图组件。"""
 
 from __future__ import annotations
 
-from math import hypot
+from math import hypot, inf
 from pathlib import Path
+from unicodedata import east_asian_width
 
 import matplotlib
 import networkx as nx
+from matplotlib.backends.backend_agg import FigureCanvasAgg
 from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg
 from matplotlib.figure import Figure
-from matplotlib.patches import Patch
+from matplotlib.patches import FancyArrowPatch, Patch
+from matplotlib.text import Text
+from matplotlib.transforms import Bbox
 from PySide6.QtCore import Signal
 
 from toposort_core import DirectedGraph
@@ -23,18 +27,53 @@ matplotlib.rcParams["font.sans-serif"] = [
 matplotlib.rcParams["axes.unicode_minus"] = False
 
 
+def _character_width(character: str) -> int:
+    return 2 if east_asian_width(character) in {"F", "W"} else 1
+
+
+def _wrap_label(value: str, *, line_width: int, max_lines: int | None) -> str:
+    """按中英文视觉宽度换行；预览超长名称时以省略号表示。"""
+    lines: list[str] = []
+    current = ""
+    width = 0
+    for character in value:
+        character_width = _character_width(character)
+        if current and width + character_width > line_width:
+            lines.append(current)
+            current = ""
+            width = 0
+        current += character
+        width += character_width
+    if current:
+        lines.append(current)
+    if max_lines is not None and len(lines) > max_lines:
+        lines = lines[:max_lines]
+        last = lines[-1]
+        while last and sum(_character_width(char) for char in last) + 1 > line_width:
+            last = last[:-1]
+        lines[-1] = last + "…"
+    return "\n".join(lines)
+
+
+def _boundary_fraction(box: Bbox, delta_x: float, delta_y: float, length: float) -> float:
+    x_fraction = (box.width / 2) / abs(delta_x) if delta_x else inf
+    y_fraction = (box.height / 2) / abs(delta_y) if delta_y else inf
+    return min(x_fraction, y_fraction) + 10 / length
+
+
 class GraphCanvas(FigureCanvasQTAgg):
     """在 Qt 中绘制并交互查看有向关系图。"""
 
     node_selected = Signal(str)
 
     def __init__(self) -> None:
-        self.figure = Figure(figsize=(7.2, 5.6), dpi=100, constrained_layout=True)
+        self.figure = Figure(figsize=(7.2, 5.6), dpi=100)
         super().__init__(self.figure)
         self.setMinimumSize(420, 360)
         self._graph: DirectedGraph | None = None
         self._network = nx.DiGraph()
         self._positions: dict[str, object] = {}
+        self._node_artists: dict[str, Text] = {}
         self._cycle: tuple[str, ...] = ()
         self._redundant_edges: set[tuple[str, str]] = set()
         self._selected_node = ""
@@ -42,7 +81,9 @@ class GraphCanvas(FigureCanvasQTAgg):
         self._hide_redundant = False
         self._dark_mode = False
         self._has_graph = False
+        self._stage_lookup: dict[str, int] = {}
         self.mpl_connect("button_press_event", self._on_mouse_press)
+        self.mpl_connect("motion_notify_event", self._on_mouse_move)
         self.show_placeholder()
 
     @property
@@ -59,7 +100,7 @@ class GraphCanvas(FigureCanvasQTAgg):
                 "background": "#111827",
                 "placeholder": "#94A3B8",
                 "detail": "#64748B",
-                "edge": "#5B6B82",
+                "edge": "#667790",
                 "unrelated": "#475569",
                 "legend": "#CBD5E1",
             }
@@ -67,7 +108,7 @@ class GraphCanvas(FigureCanvasQTAgg):
             "background": "#FFFFFF",
             "placeholder": "#56637A",
             "detail": "#8A96A8",
-            "edge": "#AAB7CC",
+            "edge": "#8294B1",
             "unrelated": "#A8B2C1",
             "legend": "#334155",
         }
@@ -116,6 +157,13 @@ class GraphCanvas(FigureCanvasQTAgg):
         )
         self._has_graph = False
         self._selected_node = ""
+        self._graph = None
+        self._network = nx.DiGraph()
+        self._positions = {}
+        self._node_artists = {}
+        self._cycle = ()
+        self._redundant_edges = set()
+        self._stage_lookup = {}
         self.draw_idle()
 
     def draw_graph(
@@ -128,6 +176,7 @@ class GraphCanvas(FigureCanvasQTAgg):
         self._cycle = cycle
         self._redundant_edges = set(redundant_edges)
         self._selected_node = ""
+        self._stage_lookup = {}
         self._render()
 
     def set_layout_mode(self, mode: str) -> None:
@@ -149,6 +198,14 @@ class GraphCanvas(FigureCanvasQTAgg):
         else:
             self._render()
 
+    def set_stage_highlight(self, stages: tuple[tuple[str, ...], ...] | None) -> None:
+        """按阶段着色节点；传入 None 可恢复原有的起点/终点着色。"""
+        self._stage_lookup = {
+            node: index for index, stage in enumerate(stages or ()) for node in stage
+        }
+        if self._graph is not None:
+            self._render()
+
     def _build_network(self) -> nx.DiGraph:
         assert self._graph is not None
         network = nx.DiGraph()
@@ -160,7 +217,19 @@ class GraphCanvas(FigureCanvasQTAgg):
         )
         return network
 
-    def _compute_positions(self, network: nx.DiGraph) -> dict[str, object]:
+    @staticmethod
+    def _is_simple_chain(network: nx.DiGraph) -> bool:
+        return (
+            len(network) > 10
+            and network.number_of_edges() == len(network) - 1
+            and nx.is_weakly_connected(network)
+            and all(
+                network.in_degree(node) <= 1 and network.out_degree(node) <= 1
+                for node in network
+            )
+        )
+
+    def _compute_positions(self, network: nx.DiGraph) -> dict[str, tuple[float, float]]:
         if self._layout_mode == "circular":
             return nx.circular_layout(network)
         if self._layout_mode == "spring":
@@ -168,14 +237,34 @@ class GraphCanvas(FigureCanvasQTAgg):
         if self._cycle or not nx.is_directed_acyclic_graph(network):
             return nx.spring_layout(network, seed=23, k=1.25)
 
-        generations = list(nx.topological_generations(network))
-        layers = {
-            node: layer
-            for layer, generation in enumerate(generations)
-            for node in sorted(generation)
-        }
-        nx.set_node_attributes(network, layers, "layer")
-        return nx.multipartite_layout(network, subset_key="layer", align="vertical")
+        if self._is_simple_chain(network):
+            # 长链折行为蛇形，避免几十个节点被压成一条不可读的直线。
+            columns = 6
+            ordered = list(nx.topological_sort(network))
+            positions = {}
+            for index, node in enumerate(ordered):
+                row, column = divmod(index, columns)
+                if row % 2:
+                    column = columns - 1 - column
+                positions[node] = (float(column), float(-row))
+            return positions
+
+        # 先按拓扑层划分，再按前驱重心排序，减少图 1 一类数据的交叉。
+        generations = [sorted(generation) for generation in nx.topological_generations(network)]
+        positions = {}
+        for layer, generation in enumerate(generations):
+            if layer:
+                generation.sort(
+                    key=lambda node: (
+                        sum(positions[parent][1] for parent in network.predecessors(node))
+                        / max(network.in_degree(node), 1),
+                        node,
+                    ),
+                    reverse=True,
+                )
+            for row, node in enumerate(generation):
+                positions[node] = (float(layer), (len(generation) - 1) / 2 - row)
+        return positions
 
     def _node_colors(self, network: nx.DiGraph) -> list[str]:
         cycle_nodes = set(self._cycle)
@@ -196,10 +285,13 @@ class GraphCanvas(FigureCanvasQTAgg):
                     colors.append(self._colors()["unrelated"])
             return colors
 
+        palette = ("#3157D5", "#7457C8", "#D88727", "#168A76", "#9C477C")
         colors = []
         for node in network.nodes:
             if node in cycle_nodes:
                 colors.append("#E5484D")
+            elif node in self._stage_lookup:
+                colors.append(palette[self._stage_lookup[node] % len(palette)])
             elif network.in_degree(node) == 0:
                 colors.append("#3157D5")
             elif network.out_degree(node) == 0:
@@ -235,6 +327,8 @@ class GraphCanvas(FigureCanvasQTAgg):
                 Patch(facecolor="#22A06B", label="所有后续"),
                 Patch(facecolor=self._colors()["unrelated"], label="其他"),
             ]
+        if self._stage_lookup:
+            return [Patch(facecolor="#3157D5", label="阶段颜色循环显示")]
         items = [
             Patch(facecolor="#3157D5", label="起点"),
             Patch(facecolor="#7457C8", label="中间节点"),
@@ -244,65 +338,105 @@ class GraphCanvas(FigureCanvasQTAgg):
             items.append(Patch(facecolor="#E5484D", label="环路节点"))
         return items
 
-    def _render(self) -> None:
+    def _draw_on_figure(self, figure: Figure, *, export: bool) -> None:
         assert self._graph is not None
         colors = self._colors()
         network = self._build_network()
         positions = self._compute_positions(network)
-
-        self.figure.clear()
-        self.figure.patch.set_facecolor(colors["background"])
-        axis = self.figure.add_subplot(111)
+        figure.clear()
+        figure.patch.set_facecolor(colors["background"])
+        axis = figure.add_subplot(111)
         axis.set_facecolor(colors["background"])
         axis.axis("off")
+        x_values = [position[0] for position in positions.values()]
+        y_values = [position[1] for position in positions.values()]
+        axis.set_xlim(min(x_values) - 0.6, max(x_values) + 0.6)
+        axis.set_ylim(min(y_values) - 0.6, max(y_values) + 0.6)
+        axis.set_autoscale_on(False)
 
-        edge_colors, edge_widths = self._edge_style(network)
-        if self._graph.node_count >= 13:
-            minimum_size, maximum_size, character_factor = 1200, 3000, 48
-        elif self._graph.node_count >= 8:
-            minimum_size, maximum_size, character_factor = 1550, 4600, 65
+        count = self._graph.node_count
+        if export:
+            line_width = 28 if count <= 20 else 20
+            max_lines = None
+            font_size = 10 if count <= 20 else 8
         else:
-            minimum_size, maximum_size, character_factor = 1900, 8200, 85
-        node_sizes = [
-            min(
-                maximum_size,
-                max(minimum_size, 800 + len(node) * len(node) * character_factor),
+            line_width = 24 if count <= 5 else 16 if count <= 20 else 12
+            max_lines = 3 if count <= 5 else 2
+            font_size = 9 if count <= 20 else 7
+        node_artists = {}
+        for node, facecolor in zip(network.nodes, self._node_colors(network), strict=True):
+            x, y = positions[node]
+            node_artists[node] = axis.text(
+                x,
+                y,
+                _wrap_label(node, line_width=line_width, max_lines=max_lines),
+                ha="center",
+                va="center",
+                fontsize=font_size,
+                fontweight="bold",
+                color="#FFFFFF",
+                linespacing=1.2,
+                zorder=3,
+                bbox={
+                    "boxstyle": "round,pad=0.48,rounding_size=0.23",
+                    "facecolor": facecolor,
+                    "edgecolor": colors["background"],
+                    "linewidth": 1.5,
+                    "alpha": 0.98,
+                },
             )
-            for node in network.nodes
-        ]
-        font_size = 8 if self._graph.node_count > 24 else 9
 
-        nx.draw_networkx_nodes(
-            network,
-            positions,
-            ax=axis,
-            node_color=self._node_colors(network),
-            node_size=node_sizes,
-            edgecolors=colors["background"],
-            linewidths=2.0,
-            alpha=0.97,
-        )
-        nx.draw_networkx_edges(
-            network,
-            positions,
-            ax=axis,
-            edge_color=edge_colors,
-            width=edge_widths,
-            arrows=True,
-            arrowsize=17,
-            arrowstyle="-|>",
-            connectionstyle="arc3,rad=0.035",
-            min_source_margin=25,
-            min_target_margin=25,
-        )
-        nx.draw_networkx_labels(
-            network,
-            positions,
-            ax=axis,
-            font_size=font_size,
-            font_color="#FFFFFF",
-            font_weight="bold",
-        )
+        # 文字节点的外框尺寸由实际字体决定，先测量像素边界，再让箭头在外框前停止。
+        figure.canvas.draw()
+        renderer = figure.canvas.get_renderer()
+        bounds = {
+            node: artist.get_window_extent(renderer=renderer)
+            for node, artist in node_artists.items()
+        }
+        edge_colors, edge_widths = self._edge_style(network)
+        for (source, target), edge_color, edge_width in zip(
+            network.edges, edge_colors, edge_widths, strict=True
+        ):
+            if source == target:
+                nx.draw_networkx_edges(
+                    network,
+                    positions,
+                    edgelist=[(source, target)],
+                    ax=axis,
+                    edge_color=edge_color,
+                    width=edge_width,
+                    arrows=True,
+                    arrowsize=16 if export else 13,
+                    node_size=900,
+                )
+                continue
+            source_px = axis.transData.transform(positions[source])
+            target_px = axis.transData.transform(positions[target])
+            delta_x = target_px[0] - source_px[0]
+            delta_y = target_px[1] - source_px[1]
+            length = hypot(delta_x, delta_y)
+            if length == 0:
+                continue
+
+            start_fraction = _boundary_fraction(bounds[source], delta_x, delta_y, length)
+            end_fraction = _boundary_fraction(bounds[target], delta_x, delta_y, length)
+            if start_fraction + end_fraction >= 0.96:
+                continue
+            start_px = source_px + (target_px - source_px) * start_fraction
+            end_px = target_px - (target_px - source_px) * end_fraction
+            axis.add_patch(
+                FancyArrowPatch(
+                    axis.transData.inverted().transform(start_px),
+                    axis.transData.inverted().transform(end_px),
+                    arrowstyle="-|>,head_length=0.7,head_width=0.4",
+                    mutation_scale=17 if export else 14,
+                    linewidth=edge_width,
+                    color=edge_color,
+                    shrinkA=0,
+                    shrinkB=0,
+                    zorder=2,
+                )
+            )
 
         legend_items = self._legend_items()
         legend = axis.legend(
@@ -315,42 +449,64 @@ class GraphCanvas(FigureCanvasQTAgg):
         )
         for label in legend.get_texts():
             label.set_color(colors["legend"])
-        axis.margins(0.18)
-        self._network = network
-        self._positions = positions
-        self._has_graph = True
+        if not export:
+            self._network = network
+            self._positions = positions
+            self._node_artists = node_artists
+            self._has_graph = True
+
+    def _render(self) -> None:
+        self._draw_on_figure(self.figure, export=False)
         self.draw_idle()
 
-    def _on_mouse_press(self, event: object) -> None:
+    def _closest_node(self, event: object, *, radius: float = 50.0) -> str:
         if not self._has_graph or getattr(event, "inaxes", None) is None:
-            return
+            return ""
         click_x = getattr(event, "x", None)
         click_y = getattr(event, "y", None)
         if click_x is None or click_y is None:
-            return
-
+            return ""
         axis = event.inaxes
+        renderer = self.figure.canvas.get_renderer()
+        for node, artist in self._node_artists.items():
+            if artist.get_window_extent(renderer=renderer).contains(click_x, click_y):
+                return node
         closest = ""
-        closest_distance = 50.0
+        closest_distance = radius
         for node, position in self._positions.items():
             display_x, display_y = axis.transData.transform(position)
             distance = hypot(display_x - click_x, display_y - click_y)
             if distance < closest_distance:
                 closest = node
                 closest_distance = distance
+        return closest
 
+    def _on_mouse_press(self, event: object) -> None:
+        closest = self._closest_node(event)
         if not closest:
             return
         self._selected_node = "" if closest == self._selected_node else closest
         self._render()
         self.node_selected.emit(self._selected_node)
 
+    def _on_mouse_move(self, event: object) -> None:
+        self.setToolTip(self._closest_node(event))
+
     def export(self, path: str | Path) -> None:
         if not self._has_graph:
             raise ValueError("当前没有可导出的关系图")
-        self.figure.savefig(
+        x_values = [position[0] for position in self._positions.values()]
+        y_values = [position[1] for position in self._positions.values()]
+        width = min(24.0, max(8.0, 2.2 * (max(x_values) - min(x_values) + 1)))
+        height = min(18.0, max(6.0, 1.55 * (max(y_values) - min(y_values) + 1)))
+        if self._graph is not None and any(len(node) > 20 for node in self._graph.nodes):
+            width = min(24.0, max(width, 12.0))
+        export_figure = Figure(figsize=(width, height), dpi=100)
+        FigureCanvasAgg(export_figure)
+        self._draw_on_figure(export_figure, export=True)
+        export_figure.savefig(
             path,
-            dpi=220,
+            dpi=180,
             facecolor=self._colors()["background"],
             bbox_inches="tight",
         )

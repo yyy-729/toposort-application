@@ -144,6 +144,70 @@ class GuiTests(unittest.TestCase):
         self.assertIn("拓扑排序结果", QApplication.clipboard().text())
         window.close()
 
+    def test_large_result_is_paged_without_losing_export_or_copy(self) -> None:
+        window = MainWindow()
+        graph_text = "\n".join(f"<N{i},Z>" for i in range(5))
+        result = solve_text(graph_text, max_results=120)
+        window._on_solve_finished(result)
+
+        self.assertEqual(result.output_count, 120)
+        self.assertEqual(window.page_spin.maximum(), 3)
+        self.assertTrue(window.result_pager.isVisibleTo(window.result_tabs))
+        self.assertIn("当前显示第 1—50 条", window.result_editor.toPlainText())
+        window.page_spin.setValue(3)
+        self.assertIn("当前显示第 101—120 条", window.result_editor.toPlainText())
+        self.assertIn("120.", window.result_editor.toPlainText())
+        window.copy_results()
+        self.assertIn("1.", QApplication.clipboard().text())
+        self.assertIn("120.", QApplication.clipboard().text())
+        window.close()
+
+    def test_stage_planner_runs_and_is_invalidated_on_input_change(self) -> None:
+        window = MainWindow()
+        text = "<A,C>\n<B,C>"
+        parsed = parse_relations(text)
+        assert parsed.graph is not None
+        window.input_editor.setPlainText(text)
+        window._current_graph = parsed.graph
+        window.graph_canvas.draw_graph(parsed.graph)
+        window._on_solve_finished(solve_text(text))
+        self.assertTrue(window.plan_button.isEnabled())
+
+        window.capacity_spin.setValue(2)
+        window.run_stage_plan()
+        deadline = time.monotonic() + 5
+        while window._current_plan is None and time.monotonic() < deadline:
+            self.app.processEvents()
+            time.sleep(0.01)
+
+        self.assertIsNotNone(window._current_plan)
+        assert window._current_plan is not None
+        self.assertTrue(window._current_plan.is_optimal)
+        self.assertEqual(window._current_plan.stage_count, 2)
+        self.assertIn("精确最优", window.plan_editor.toPlainText())
+        self.assertTrue(window.export_plan_button.isEnabled())
+
+        window.input_editor.setPlainText(text + "\n<C,D>")
+        self.assertIsNone(window._current_plan)
+        self.assertFalse(window.export_plan_button.isEnabled())
+        window.close()
+
+    def test_clearing_after_stage_plan_does_not_restore_stale_graph(self) -> None:
+        window = MainWindow()
+        graph_text = "<A,B>"
+        parsed = parse_relations(graph_text)
+        assert parsed.graph is not None
+        window._current_graph = parsed.graph
+        window.graph_canvas.draw_graph(parsed.graph)
+        window._on_solve_finished(solve_text(graph_text))
+
+        window.clear_all()
+
+        self.assertFalse(window.graph_canvas.has_graph)
+        self.assertIsNone(window.graph_canvas._graph)
+        self.assertFalse(window.export_graph_button.isEnabled())
+        window.close()
+
 
 if __name__ == "__main__":
     unittest.main()

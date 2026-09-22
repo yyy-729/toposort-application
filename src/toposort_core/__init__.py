@@ -12,16 +12,32 @@ from .analysis import (
     has_unique_topological_order,
 )
 from .io import export_result, format_result, load_relations
-from .models import DirectedGraph, GraphInsights, ParseResult, SolveResult, ValidationIssue
+from .models import (
+    DirectedGraph,
+    GraphInsights,
+    ParseResult,
+    SolveResult,
+    StagePlanResult,
+    ValidationIssue,
+)
 from .parser import parse_relations
+from .planning import (
+    DEFAULT_EXACT_PLAN_NODE_LIMIT,
+    MAX_EXACT_PLAN_NODE_LIMIT,
+    plan_stages,
+    plan_text,
+)
 from .solver import find_cycle, solve_graph, solve_text
 
 __all__ = [
     "DirectedGraph",
+    "DEFAULT_EXACT_PLAN_NODE_LIMIT",
     "EXACT_COUNT_NODE_LIMIT",
     "GraphInsights",
     "ParseResult",
+    "MAX_EXACT_PLAN_NODE_LIMIT",
     "SolveResult",
+    "StagePlanResult",
     "ValidationIssue",
     "__version__",
     "analyze_graph",
@@ -34,6 +50,8 @@ __all__ = [
     "format_result",
     "load_relations",
     "parse_relations",
+    "plan_stages",
+    "plan_text",
     "has_unique_topological_order",
     "solve_graph",
     "solve_text",

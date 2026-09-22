@@ -9,6 +9,7 @@ from typing import Literal
 
 IssueLevel = Literal["error", "warning"]
 StopReason = Literal["completed", "limit", "cycle", "invalid_input"]
+PlanningMethod = Literal["exact", "heuristic", "unavailable"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -131,3 +132,31 @@ class SolveResult:
     @property
     def is_successful(self) -> bool:
         return not self.errors and not self.has_cycle
+
+
+@dataclass(frozen=True, slots=True)
+class StagePlanResult:
+    """每阶段最多安排 ``capacity`` 个节点的依赖规划结果。"""
+
+    stages: tuple[tuple[str, ...], ...]
+    capacity: int
+    method: PlanningMethod
+    is_optimal: bool
+    lower_bound: int
+    node_count: int
+    edge_count: int
+    cycle: tuple[str, ...] = ()
+    errors: tuple[ValidationIssue, ...] = ()
+    warnings: tuple[ValidationIssue, ...] = ()
+
+    @property
+    def stage_count(self) -> int:
+        return len(self.stages)
+
+    @property
+    def is_successful(self) -> bool:
+        return not self.errors and not self.cycle
+
+    @property
+    def has_cycle(self) -> bool:
+        return bool(self.cycle)

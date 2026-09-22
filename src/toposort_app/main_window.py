@@ -33,6 +33,7 @@ from PySide6.QtWidgets import (
 from toposort_core import (
     DirectedGraph,
     SolveResult,
+    StagePlanResult,
     export_result,
     format_result,
     parse_relations,
@@ -40,7 +41,7 @@ from toposort_core import (
 
 from .graph_view import GraphCanvas
 from .theme import APP_STYLESHEET, DARK_STYLESHEET
-from .workers import SolverTask
+from .workers import PlannerTask, SolverTask
 
 DEFAULT_SAMPLE = """<程序设计基础,数据结构>
 <离散数学,数据结构>
@@ -51,6 +52,8 @@ DEFAULT_SAMPLE = """<程序设计基础,数据结构>
 <算法设计,高级算法原理实践>
 <数据库原理,高级算法原理实践>
 """
+
+RESULTS_PER_PAGE = 50
 
 
 class StatCard(QFrame):
@@ -85,6 +88,8 @@ class MainWindow(QMainWindow):
         self._current_result: SolveResult | None = None
         self._current_file: Path | None = None
         self._active_task: SolverTask | None = None
+        self._active_plan_task: PlannerTask | None = None
+        self._current_plan: StagePlanResult | None = None
         self._dark_mode = False
 
         self._build_actions()
@@ -330,13 +335,63 @@ class MainWindow(QMainWindow):
         self.result_editor = QPlainTextEdit()
         self.result_editor.setReadOnly(True)
         self.result_editor.setPlaceholderText("运行后在此显示拓扑排序结果")
+        result_page = QWidget()
+        result_page_layout = QVBoxLayout(result_page)
+        result_page_layout.setContentsMargins(0, 0, 0, 0)
+        result_page_layout.setSpacing(6)
+        result_page_layout.addWidget(self.result_editor, 1)
+        pager = QHBoxLayout()
+        pager.setSpacing(6)
+        self.previous_page_button = QPushButton("上一页")
+        self.next_page_button = QPushButton("下一页")
+        self.page_spin = QSpinBox()
+        self.page_spin.setRange(1, 1)
+        self.page_spin.setValue(1)
+        self.page_spin.setFixedWidth(72)
+        self.page_label = QLabel("第 1 / 1 页")
+        self.result_pager = QWidget()
+        self.result_pager.setLayout(pager)
+        pager.addStretch()
+        pager.addWidget(self.previous_page_button)
+        pager.addWidget(self.page_spin)
+        pager.addWidget(self.page_label)
+        pager.addWidget(self.next_page_button)
+        result_page_layout.addWidget(self.result_pager)
+        self.result_pager.hide()
         self.insight_editor = QPlainTextEdit()
         self.insight_editor.setReadOnly(True)
         self.insight_editor.setPlaceholderText("运行后显示并行阶段、最长依赖链等智能分析")
-        self.result_tabs.addTab(self.result_editor, "排序结果")
+        self.result_tabs.addTab(result_page, "排序结果")
         self.result_tabs.addTab(self.insight_editor, "智能分析")
+        self.result_tabs.addTab(self._build_planner_tab(), "阶段规划")
         layout.addWidget(self.result_tabs, 1)
         return panel
+
+    def _build_planner_tab(self) -> QWidget:
+        page = QWidget()
+        layout = QVBoxLayout(page)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(8)
+        controls = QHBoxLayout()
+        controls.addWidget(QLabel("每阶段最多"))
+        self.capacity_spin = QSpinBox()
+        self.capacity_spin.setRange(1, 100000)
+        self.capacity_spin.setValue(3)
+        self.capacity_spin.setSuffix(" 项")
+        self.plan_button = QPushButton("生成规划")
+        self.plan_button.setEnabled(False)
+        self.export_plan_button = QPushButton("导出规划")
+        self.export_plan_button.setEnabled(False)
+        controls.addWidget(self.capacity_spin)
+        controls.addStretch()
+        controls.addWidget(self.plan_button)
+        controls.addWidget(self.export_plan_button)
+        self.plan_editor = QPlainTextEdit()
+        self.plan_editor.setReadOnly(True)
+        self.plan_editor.setPlaceholderText("运行分析后，设置每阶段可安排的最大节点数，再生成规划")
+        layout.addLayout(controls)
+        layout.addWidget(self.plan_editor, 1)
+        return page
 
     def _connect_signals(self) -> None:
         self.open_action.triggered.connect(self.open_file)
@@ -358,11 +413,24 @@ class MainWindow(QMainWindow):
         self.reduction_check.toggled.connect(self._toggle_reduction)
         self.graph_canvas.node_selected.connect(self._show_node_details)
         self.copy_result_button.clicked.connect(self.copy_results)
+        self.previous_page_button.clicked.connect(
+            lambda: self.page_spin.setValue(self.page_spin.value() - 1)
+        )
+        self.next_page_button.clicked.connect(
+            lambda: self.page_spin.setValue(self.page_spin.value() + 1)
+        )
+        self.page_spin.valueChanged.connect(self._show_result_page)
+        self.plan_button.clicked.connect(self.run_stage_plan)
+        self.export_plan_button.clicked.connect(self.export_stage_plan)
+        self.capacity_spin.valueChanged.connect(self._invalidate_stage_plan)
 
     def _mark_input_changed(self) -> None:
         had_analysis = self._current_graph is not None or bool(self.result_editor.toPlainText())
         self._current_result = None
         self._current_graph = None
+        self._invalidate_stage_plan()
+        self.plan_button.setEnabled(False)
+        self.result_pager.hide()
         self._set_export_enabled(False)
         self.copy_result_button.setEnabled(False)
         self.reduction_check.setChecked(False)
@@ -390,6 +458,9 @@ class MainWindow(QMainWindow):
         self._current_graph = None
         self._current_result = None
         self._current_file = None
+        self._invalidate_stage_plan()
+        self.plan_button.setEnabled(False)
+        self.result_pager.hide()
         self._update_stats()
         self._set_export_enabled(False)
         self.copy_result_button.setEnabled(False)
@@ -422,6 +493,8 @@ class MainWindow(QMainWindow):
         self.statusBar().showMessage(f"已导入：{path.name}")
 
     def run_analysis(self) -> None:
+        if self._active_plan_task is not None:
+            return
         text = self.input_editor.toPlainText()
         parsed = parse_relations(text)
 
@@ -433,6 +506,9 @@ class MainWindow(QMainWindow):
             self.graph_canvas.show_placeholder("输入格式有误", "请根据左侧提示修改关系数据")
             self._current_graph = None
             self._current_result = None
+            self._invalidate_stage_plan()
+            self.plan_button.setEnabled(False)
+            self.result_pager.hide()
             self._update_stats(state="格式错误")
             self._set_export_enabled(False)
             self.copy_result_button.setEnabled(False)
@@ -442,6 +518,8 @@ class MainWindow(QMainWindow):
 
         assert parsed.graph is not None
         self._current_graph = parsed.graph
+        self._invalidate_stage_plan()
+        self.plan_button.setEnabled(False)
         self.graph_canvas.draw_graph(parsed.graph)
         self._show_notice(
             "\n".join(str(issue) for issue in parsed.warnings),
@@ -467,7 +545,13 @@ class MainWindow(QMainWindow):
 
     def _on_solve_finished(self, result: SolveResult) -> None:
         self._current_result = result
-        self.result_editor.setPlainText(format_result(result))
+        page_count = max(1, (result.output_count + RESULTS_PER_PAGE - 1) // RESULTS_PER_PAGE)
+        self.page_spin.blockSignals(True)
+        self.page_spin.setRange(1, page_count)
+        self.page_spin.setValue(1)
+        self.page_spin.blockSignals(False)
+        self.result_pager.setVisible(page_count > 1)
+        self._show_result_page()
 
         redundant_edges = result.insights.redundant_edges if result.insights is not None else ()
 
@@ -508,8 +592,41 @@ class MainWindow(QMainWindow):
         self._set_busy(False)
         self._set_export_enabled(True)
         self.copy_result_button.setEnabled(True)
+        self.plan_button.setEnabled(result.is_successful)
         self._active_task = None
         self.statusBar().showMessage("分析完成")
+
+    def _show_result_page(self) -> None:
+        result = self._current_result
+        if result is None:
+            return
+        page_count = self.page_spin.maximum()
+        page = self.page_spin.value()
+        self.page_label.setText(f"第 {page} / {page_count} 页")
+        self.previous_page_button.setEnabled(page > 1)
+        self.next_page_button.setEnabled(page < page_count)
+        if page_count == 1:
+            self.result_editor.setPlainText(format_result(result))
+            return
+
+        start = (page - 1) * RESULTS_PER_PAGE
+        visible_orders = result.orders[start : start + RESULTS_PER_PAGE]
+        status = "已完整枚举" if result.is_complete else "达到结果上限，未完全枚举"
+        lines = [
+            "拓扑排序结果",
+            f"节点数：{result.node_count}  关系数：{result.edge_count}",
+            f"状态：{status}",
+            f"本次已生成：{result.output_count} 条；"
+            f"当前显示第 {start + 1}—{start + len(visible_orders)} 条",
+        ]
+        if result.insights is not None and result.insights.count_is_exact:
+            lines.append(f"可行顺序总数：{result.insights.total_order_count}")
+        lines.append("")
+        lines.extend(
+            f"{index}. {' -> '.join(order)}"
+            for index, order in enumerate(visible_orders, start=start + 1)
+        )
+        self.result_editor.setPlainText("\n".join(lines))
 
     def _on_solve_failed(self, message: str) -> None:
         self._set_busy(False)
@@ -517,6 +634,104 @@ class MainWindow(QMainWindow):
         self.status_pill.setText("运行失败")
         self.statusBar().showMessage("运行失败")
         QMessageBox.critical(self, "运行失败", message)
+
+    def _invalidate_stage_plan(self) -> None:
+        self._current_plan = None
+        self.plan_editor.clear()
+        self.export_plan_button.setEnabled(False)
+        self.graph_canvas.set_stage_highlight(())
+
+    def run_stage_plan(self) -> None:
+        if self._current_graph is None or self._current_result is None:
+            return
+        if not self._current_result.is_successful or self._active_plan_task is not None:
+            return
+        self._invalidate_stage_plan()
+        self.plan_button.setEnabled(False)
+        self.capacity_spin.setEnabled(False)
+        self.input_editor.setReadOnly(True)
+        self.import_button.setEnabled(False)
+        self.open_action.setEnabled(False)
+        self.sample_button.setEnabled(False)
+        self.clear_button.setEnabled(False)
+        self.run_button.setEnabled(False)
+        self.run_action.setEnabled(False)
+        self.plan_editor.setPlainText("正在计算阶段规划…")
+        task = PlannerTask(self._current_graph, self.capacity_spin.value())
+        task.signals.finished.connect(self._on_stage_plan_finished)
+        task.signals.failed.connect(self._on_stage_plan_failed)
+        self._active_plan_task = task
+        self._thread_pool.start(task)
+
+    def _on_stage_plan_finished(self, plan: StagePlanResult) -> None:
+        self._active_plan_task = None
+        self._current_plan = plan
+        self.plan_editor.setPlainText(self._format_stage_plan(plan))
+        self._finish_stage_plan_task()
+        self.export_plan_button.setEnabled(plan.is_successful)
+        if plan.is_successful:
+            self.graph_canvas.set_stage_highlight(plan.stages)
+            self.statusBar().showMessage("阶段规划已完成，关系图已按阶段着色")
+
+    def _on_stage_plan_failed(self, message: str) -> None:
+        self._active_plan_task = None
+        self._finish_stage_plan_task()
+        self.plan_editor.setPlainText(f"规划失败：{message}")
+        self.statusBar().showMessage("阶段规划失败")
+
+    def _finish_stage_plan_task(self) -> None:
+        self.plan_button.setEnabled(self._current_result is not None)
+        self.capacity_spin.setEnabled(True)
+        self.input_editor.setReadOnly(False)
+        self.import_button.setEnabled(True)
+        self.open_action.setEnabled(True)
+        self.sample_button.setEnabled(True)
+        self.clear_button.setEnabled(True)
+        self.run_button.setEnabled(True)
+        self.run_action.setEnabled(True)
+
+    @staticmethod
+    def _format_stage_plan(plan: StagePlanResult) -> str:
+        if plan.errors:
+            return "输入格式错误\n" + "\n".join(str(issue) for issue in plan.errors)
+        if plan.cycle:
+            return "存在有向环，无法规划阶段：" + " -> ".join(plan.cycle)
+        method = "精确最优" if plan.is_optimal else "启发式建议（不保证最优）"
+        lines = [
+            "带容量限制的阶段规划",
+            f"每阶段最多：{plan.capacity} 项",
+            f"规划方法：{method}",
+            f"阶段数：{plan.stage_count}",
+            f"阶段数理论下界：{plan.lower_bound}",
+            "",
+        ]
+        lines.extend(
+            f"阶段 {index}（{len(stage)} 项）：{'、'.join(stage)}"
+            for index, stage in enumerate(plan.stages, start=1)
+        )
+        lines.extend(
+            [
+                "",
+                "说明：每个阶段的全部前驱必须在更早阶段完成。",
+                "若节点表示课程，本规划仅考虑先修关系和数量限制，不包含学分等规则。",
+            ]
+        )
+        return "\n".join(lines) + "\n"
+
+    def export_stage_plan(self) -> None:
+        if self._current_plan is None or not self._current_plan.is_successful:
+            return
+        filename, _ = QFileDialog.getSaveFileName(
+            self, "导出阶段规划", "阶段规划.txt", "文本文件 (*.txt)"
+        )
+        if not filename:
+            return
+        try:
+            Path(filename).write_text(self._format_stage_plan(self._current_plan), encoding="utf-8")
+        except OSError as exc:
+            QMessageBox.critical(self, "导出失败", str(exc))
+            return
+        self.statusBar().showMessage(f"规划已导出：{Path(filename).name}")
 
     def _populate_insights(self, result: SolveResult) -> None:
         insights = result.insights
@@ -609,11 +824,10 @@ class MainWindow(QMainWindow):
         )
 
     def copy_results(self) -> None:
-        text = self.result_editor.toPlainText()
-        if not text:
+        if self._current_result is None:
             return
-        QApplication.clipboard().setText(text)
-        self.statusBar().showMessage("排序结果已复制到剪贴板")
+        QApplication.clipboard().setText(format_result(self._current_result))
+        self.statusBar().showMessage("本次已生成的全部排序结果已复制")
 
     def _show_notice(self, message: str, *, error: bool) -> None:
         if not message:

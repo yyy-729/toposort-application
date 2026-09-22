@@ -14,6 +14,8 @@ deliverables/
 artifacts/
 tmp/
 本地视频材料/
+测试数据/
+测试结果/
 .vscode/
 .idea/
 .env

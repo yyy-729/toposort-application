@@ -12,7 +12,7 @@ from PySide6.QtCore import QTimer
 
 from toposort_app.main import create_application
 from toposort_app.main_window import DEFAULT_SAMPLE, MainWindow
-from toposort_core import parse_relations, solve_text
+from toposort_core import parse_relations, plan_stages, solve_text
 
 
 def main() -> int:
@@ -22,12 +22,21 @@ def main() -> int:
     app = create_application([])
     window = MainWindow()
     window.resize(1480, 900)
-    window.input_editor.setPlainText(DEFAULT_SAMPLE)
-    parsed = parse_relations(DEFAULT_SAMPLE)
+    input_path = os.environ.get("TOPOSORT_PREVIEW_INPUT", "").strip()
+    sample_text = (
+        Path(input_path).read_text(encoding="utf-8-sig") if input_path else DEFAULT_SAMPLE
+    )
+    window.input_editor.setPlainText(sample_text)
+    parsed = parse_relations(sample_text)
     assert parsed.graph is not None
     window._current_graph = parsed.graph
     window.graph_canvas.draw_graph(parsed.graph)
-    window._on_solve_finished(solve_text(DEFAULT_SAMPLE))
+    window._on_solve_finished(solve_text(sample_text))
+    plan_capacity = os.environ.get("TOPOSORT_PREVIEW_PLAN_CAPACITY", "").strip()
+    if plan_capacity:
+        window.capacity_spin.setValue(int(plan_capacity))
+        window._on_stage_plan_finished(plan_stages(parsed.graph, int(plan_capacity)))
+        window.result_tabs.setCurrentIndex(2)
     if os.environ.get("TOPOSORT_PREVIEW_DARK") == "1":
         window.theme_button.setChecked(True)
     if os.environ.get("TOPOSORT_PREVIEW_TAB") == "insights":
