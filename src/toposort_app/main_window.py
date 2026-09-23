@@ -5,8 +5,8 @@ from __future__ import annotations
 from pathlib import Path
 
 from matplotlib.backends.backend_qtagg import NavigationToolbar2QT
-from PySide6.QtCore import Qt, QThreadPool
-from PySide6.QtGui import QAction, QKeySequence
+from PySide6.QtCore import Qt, QThreadPool, QUrl
+from PySide6.QtGui import QAction, QDesktopServices, QKeySequence
 from PySide6.QtWidgets import (
     QApplication,
     QCheckBox,
@@ -109,6 +109,7 @@ class MainWindow(QMainWindow):
         self.exit_action = QAction("退出", self)
         self.exit_action.setShortcut(QKeySequence.StandardKey.Quit)
         self.about_action = QAction("关于", self)
+        self.manual_action = QAction("使用说明", self)
 
         self.export_result_action.setEnabled(False)
         self.export_graph_action.setEnabled(False)
@@ -126,6 +127,7 @@ class MainWindow(QMainWindow):
         run_menu.addAction(self.run_action)
 
         help_menu = self.menuBar().addMenu("帮助")
+        help_menu.addAction(self.manual_action)
         help_menu.addAction(self.about_action)
 
     def _build_ui(self) -> None:
@@ -399,6 +401,7 @@ class MainWindow(QMainWindow):
         self.export_graph_action.triggered.connect(self.export_graph)
         self.run_action.triggered.connect(self.run_analysis)
         self.exit_action.triggered.connect(self.close)
+        self.manual_action.triggered.connect(self.open_manual)
         self.about_action.triggered.connect(self.show_about)
 
         self.import_button.clicked.connect(self.open_file)
@@ -935,3 +938,14 @@ class MainWindow(QMainWindow):
             "高级算法原理实践项目\n"
             "支持有向关系图、多拓扑序枚举、环检测和结果导出。",
         )
+
+    def open_manual(self) -> None:
+        manual_path = Path(__file__).resolve().parents[2] / "docs" / "使用说明.md"
+        if not manual_path.is_file() or not QDesktopServices.openUrl(
+            QUrl.fromLocalFile(str(manual_path))
+        ):
+            QMessageBox.information(
+                self,
+                "使用说明",
+                f"请在项目文件夹中打开：\n{manual_path}",
+            )
