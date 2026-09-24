@@ -1,5 +1,34 @@
 """应用的统一视觉主题。"""
 
+from PySide6.QtGui import QColor, QPalette
+
+
+def make_palette(dark: bool) -> QPalette:
+    """为弹出列表和对话框设置明确的颜色，避免跟随系统出现黑底黑字。"""
+    palette = QPalette()
+    window = "#151C2D" if dark else "#F4F7FC"
+    surface = "#1D273B" if dark else "#FFFFFF"
+    text = "#EBF1FB" if dark else "#18243B"
+    muted = "#A7B6CE" if dark else "#66758D"
+    highlight = "#657DF5" if dark else "#DDE5FF"
+    selected_text = "#FFFFFF" if dark else "#1B3473"
+    palette.setColor(QPalette.ColorRole.Window, QColor(window))
+    palette.setColor(QPalette.ColorRole.WindowText, QColor(text))
+    palette.setColor(QPalette.ColorRole.Base, QColor(surface))
+    palette.setColor(QPalette.ColorRole.AlternateBase, QColor(window))
+    palette.setColor(QPalette.ColorRole.Text, QColor(text))
+    palette.setColor(QPalette.ColorRole.Button, QColor(surface))
+    palette.setColor(QPalette.ColorRole.ButtonText, QColor(text))
+    palette.setColor(QPalette.ColorRole.Highlight, QColor(highlight))
+    palette.setColor(QPalette.ColorRole.HighlightedText, QColor(selected_text))
+    palette.setColor(QPalette.ColorRole.ToolTipBase, QColor(surface))
+    palette.setColor(QPalette.ColorRole.ToolTipText, QColor(text))
+    palette.setColor(QPalette.ColorRole.PlaceholderText, QColor(muted))
+    palette.setColor(QPalette.ColorGroup.Disabled, QPalette.ColorRole.Text, QColor(muted))
+    palette.setColor(QPalette.ColorGroup.Disabled, QPalette.ColorRole.ButtonText, QColor(muted))
+    return palette
+
+
 APP_STYLESHEET = """
 * {
     font-family: "Microsoft YaHei", "SimHei", "Segoe UI";
@@ -245,6 +274,138 @@ QToolButton {
 QToolButton:hover {
     background: #EEF2F8;
 }
+
+QFrame#heroBar {
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #172B52, stop:1 #314B94);
+    border: 1px solid #3F59A1;
+    border-radius: 18px;
+}
+
+QFrame#heroBar QLabel#appTitle {
+    color: #FFFFFF;
+    font-size: 24px;
+}
+
+QFrame#heroBar QLabel#appSubtitle, QFrame#heroBar QLabel#heroEyebrow {
+    color: #C5D3F4;
+}
+
+QFrame#heroBar QLabel#heroEyebrow {
+    font-size: 10px;
+    font-weight: 700;
+}
+
+QFrame#heroBar QLabel#logoBadge {
+    background: #7086FF;
+    border-radius: 23px;
+}
+
+QFrame#heroBar QLabel#statusPill {
+    color: #274381;
+    background: #EFF3FF;
+    border: 1px solid #D5DEFF;
+    border-radius: 11px;
+    padding: 6px 12px;
+}
+
+QPushButton[role="header"] {
+    color: #F7F9FF;
+    background: rgba(255, 255, 255, 0.13);
+    border: 1px solid rgba(255, 255, 255, 0.25);
+}
+
+QPushButton[role="header"]:hover {
+    background: rgba(255, 255, 255, 0.22);
+}
+
+QFrame#commandBar {
+    background: #FFFFFF;
+    border: 1px solid #E3EAF5;
+    border-radius: 14px;
+}
+
+QFrame[role="panel"] {
+    border-color: #E2E9F5;
+    border-radius: 16px;
+}
+
+QFrame[role="statCard"] {
+    background: #F7F9FD;
+    border-color: #E5EBF5;
+    border-radius: 12px;
+}
+
+QPushButton[role="primary"] {
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #536EED, stop:1 #3F59D7);
+    border: 1px solid #4A63DE;
+    border-radius: 10px;
+}
+
+QPushButton[role="primary"]:hover {
+    background: #3D57CD;
+}
+
+QComboBox QAbstractItemView {
+    color: #18243B;
+    background: #FFFFFF;
+    border: 1px solid #D8E2F1;
+    selection-background-color: #E4EBFF;
+    selection-color: #233C7D;
+    outline: 0;
+    padding: 4px;
+}
+
+QComboBox QAbstractItemView::item {
+    min-height: 30px;
+    padding: 5px 10px;
+}
+
+QComboBox QAbstractItemView::item:selected {
+    color: #233C7D;
+    background: #E4EBFF;
+}
+
+QDialog, QMessageBox {
+    color: #18243B;
+    background: #FFFFFF;
+}
+
+QDialog QLabel, QMessageBox QLabel {
+    color: #18243B;
+}
+
+QToolTip {
+    color: #18243B;
+    background: #FFFFFF;
+    border: 1px solid #D8E2F1;
+    padding: 5px;
+}
+
+QLabel[role="graphGuide"] {
+    color: #8794AA;
+    font-size: 11px;
+    padding: 2px 0;
+}
+
+QDialog#aboutDialog {
+    background: #FFFFFF;
+}
+
+QLabel#aboutTitle {
+    color: #17233C;
+    font-size: 23px;
+    font-weight: 700;
+}
+
+QLabel#aboutVersion {
+    color: #586B8E;
+    font-size: 12px;
+}
+
+QLabel#aboutDescription {
+    color: #42516A;
+    font-size: 14px;
+}
 """
 
 
@@ -362,5 +523,59 @@ QMenuBar::item:selected, QMenu::item:selected, QToolButton:hover {
 
 QToolButton {
     color: #DCE5F3;
+}
+
+QFrame#commandBar {
+    background: #1D273B;
+    border-color: #34435D;
+}
+
+QFrame#heroBar {
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #192849, stop:1 #273C79);
+    border-color: #405787;
+}
+
+QComboBox QAbstractItemView {
+    color: #EBF1FB;
+    background: #1D273B;
+    border-color: #465772;
+    selection-background-color: #40579B;
+    selection-color: #FFFFFF;
+}
+
+QComboBox QAbstractItemView::item:selected {
+    color: #FFFFFF;
+    background: #40579B;
+}
+
+QDialog, QMessageBox {
+    color: #EBF1FB;
+    background: #1D273B;
+}
+
+QDialog QLabel, QMessageBox QLabel {
+    color: #EBF1FB;
+}
+
+QToolTip {
+    color: #EBF1FB;
+    background: #1D273B;
+    border-color: #465772;
+}
+
+QLabel[role="graphGuide"] {
+    color: #9EACC3;
+}
+
+QDialog#aboutDialog {
+    background: #1D273B;
+}
+
+QLabel#aboutTitle, QLabel#aboutDescription {
+    color: #EBF1FB;
+}
+
+QLabel#aboutVersion {
+    color: #A9B9D2;
 }
 """

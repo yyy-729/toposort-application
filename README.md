@@ -87,6 +87,8 @@
 2. 双击 `安装依赖.bat`。
 3. 双击 `启动应用.bat`。
 
+`启动应用.bat`现在会立即启动图形程序并退出，加载时显示启动画面，不再留下等待中的终端。若希望完全不出现终端，可直接双击`launcher.vbs`。`run_app.bat`保留为显示 Python 错误的排查入口。
+
 也可以在 VS Code 的 PowerShell 终端执行：
 
 ```powershell
@@ -195,6 +197,10 @@ toposort-application/
 │  └─ render_app_preview.py    # 界面预览图生成脚本
 ├─ 安装依赖.bat                # Windows双击安装入口
 ├─ 启动应用.bat                # Windows双击启动入口
+├─ launcher.vbs                # 完全无终端的启动入口
+├─ run_app.pyw                 # 图形模式启动与错误提示
+├─ run_app.bat                 # 故障排查用的控制台入口
+├─ install_dependencies.bat    # 实际执行依赖安装的脚本
 ├─ requirements.txt            # 运行依赖
 ├─ requirements-dev.txt        # 测试与代码检查依赖
 ├─ pyproject.toml              # Python项目配置

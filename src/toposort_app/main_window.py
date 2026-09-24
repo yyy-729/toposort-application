@@ -4,15 +4,16 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from matplotlib.backends.backend_qtagg import NavigationToolbar2QT
 from PySide6.QtCore import Qt, QThreadPool, QTimer, QUrl
-from PySide6.QtGui import QAction, QDesktopServices, QKeySequence
+from PySide6.QtGui import QAction, QColor, QDesktopServices, QKeySequence
 from PySide6.QtWidgets import (
     QApplication,
     QCheckBox,
     QComboBox,
+    QDialog,
     QFileDialog,
     QFrame,
+    QGraphicsDropShadowEffect,
     QGridLayout,
     QHBoxLayout,
     QLabel,
@@ -21,7 +22,6 @@ from PySide6.QtWidgets import (
     QPlainTextEdit,
     QProgressBar,
     QPushButton,
-    QSizePolicy,
     QSpinBox,
     QSplitter,
     QStatusBar,
@@ -42,7 +42,7 @@ from toposort_core import (
 )
 
 from .graph_view import GraphCanvas
-from .theme import APP_STYLESHEET, DARK_STYLESHEET
+from .theme import APP_STYLESHEET, DARK_STYLESHEET, make_palette
 from .workers import PlannerTask, SolverTask
 
 DEFAULT_SAMPLE = """<程序设计基础,数据结构>
@@ -144,8 +144,8 @@ class MainWindow(QMainWindow):
         main_layout.setContentsMargins(22, 18, 22, 16)
         main_layout.setSpacing(14)
 
-        main_layout.addLayout(self._build_header())
-        main_layout.addLayout(self._build_command_bar())
+        main_layout.addWidget(self._build_header())
+        main_layout.addWidget(self._build_command_bar())
 
         splitter = QSplitter(Qt.Orientation.Horizontal)
         splitter.setChildrenCollapsible(False)
@@ -169,20 +169,26 @@ class MainWindow(QMainWindow):
         self.setStatusBar(status_bar)
         self.statusBar().showMessage("就绪")
 
-    def _build_header(self) -> QHBoxLayout:
-        layout = QHBoxLayout()
-        layout.setSpacing(12)
+    def _build_header(self) -> QFrame:
+        hero = QFrame()
+        hero.setObjectName("heroBar")
+        layout = QHBoxLayout(hero)
+        layout.setContentsMargins(20, 15, 20, 15)
+        layout.setSpacing(13)
 
         logo = QLabel("拓")
         logo.setObjectName("logoBadge")
-        logo.setFixedSize(42, 42)
+        logo.setFixedSize(46, 46)
 
         title_box = QVBoxLayout()
         title_box.setSpacing(1)
+        eyebrow = QLabel("ALGORITHM LAB  /  高级算法原理实践")
+        eyebrow.setObjectName("heroEyebrow")
         title = QLabel("拓扑序设计器")
         title.setObjectName("appTitle")
         subtitle = QLabel("有向关系分析 · 多拓扑序枚举 · 课程先修关系验证")
         subtitle.setObjectName("appSubtitle")
+        title_box.addWidget(eyebrow)
         title_box.addWidget(title)
         title_box.addWidget(subtitle)
 
@@ -192,6 +198,7 @@ class MainWindow(QMainWindow):
 
         self.theme_button = QPushButton("深色模式")
         self.theme_button.setCheckable(True)
+        self.theme_button.setProperty("role", "header")
         self.theme_button.setToolTip("切换深色或浅色主题")
 
         layout.addWidget(logo)
@@ -199,10 +206,13 @@ class MainWindow(QMainWindow):
         layout.addStretch()
         layout.addWidget(self.theme_button)
         layout.addWidget(self.status_pill)
-        return layout
+        return hero
 
-    def _build_command_bar(self) -> QHBoxLayout:
-        layout = QHBoxLayout()
+    def _build_command_bar(self) -> QFrame:
+        command_bar = QFrame()
+        command_bar.setObjectName("commandBar")
+        layout = QHBoxLayout(command_bar)
+        layout.setContentsMargins(12, 9, 12, 9)
         layout.setSpacing(8)
 
         self.import_button = QPushButton("导入 TXT")
@@ -234,11 +244,16 @@ class MainWindow(QMainWindow):
         layout.addWidget(limit_label)
         layout.addWidget(self.limit_spin)
         layout.addWidget(self.run_button)
-        return layout
+        return command_bar
 
     def _new_panel(self) -> tuple[QFrame, QVBoxLayout]:
         panel = QFrame()
         panel.setProperty("role", "panel")
+        shadow = QGraphicsDropShadowEffect(panel)
+        shadow.setBlurRadius(24)
+        shadow.setOffset(0, 4)
+        shadow.setColor(QColor(25, 44, 85, 18))
+        panel.setGraphicsEffect(shadow)
         layout = QVBoxLayout(panel)
         layout.setContentsMargins(16, 16, 16, 16)
         layout.setSpacing(10)
@@ -294,15 +309,15 @@ class MainWindow(QMainWindow):
         title_row.addWidget(self.reduction_check)
 
         self.graph_canvas = GraphCanvas()
-        self.graph_toolbar = NavigationToolbar2QT(self.graph_canvas, self)
-        self.graph_toolbar.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        graph_hint = QLabel("滚轮缩放  ·  右键拖动  ·  双击还原")
+        graph_hint.setProperty("role", "graphGuide")
         self.node_detail = QLabel("点击图中节点，可高亮它的全部前置和后续节点")
         self.node_detail.setProperty("role", "hint")
         self.node_detail.setWordWrap(True)
 
         layout.addLayout(title_row)
-        layout.addWidget(self.graph_toolbar)
         layout.addWidget(self.graph_canvas, 1)
+        layout.addWidget(graph_hint)
         layout.addWidget(self.node_detail)
         return panel
 
@@ -963,6 +978,7 @@ class MainWindow(QMainWindow):
         self._dark_mode = enabled
         app = QApplication.instance()
         if app is not None:
+            app.setPalette(make_palette(enabled))
             app.setStyleSheet(DARK_STYLESHEET if enabled else APP_STYLESHEET)
         self.theme_button.setText("浅色模式" if enabled else "深色模式")
         self.graph_canvas.set_dark_mode(enabled)
@@ -1100,13 +1116,45 @@ class MainWindow(QMainWindow):
         self.statusBar().showMessage(f"关系图已导出：{Path(filename).name}")
 
     def show_about(self) -> None:
-        QMessageBox.about(
-            self,
-            "关于拓扑序设计器",
-            "拓扑序设计器 2.0.0\n\n"
-            "高级算法原理实践项目\n"
-            "支持有向关系图、多拓扑序枚举、环检测和结果导出。",
+        self._build_about_dialog().exec()
+
+    def _build_about_dialog(self) -> QDialog:
+        dialog = QDialog(self)
+        dialog.setObjectName("aboutDialog")
+        dialog.setWindowTitle("关于拓扑序设计器")
+        dialog.setModal(True)
+        dialog.setFixedWidth(450)
+        dialog.setPalette(make_palette(self._dark_mode))
+        dialog.setStyleSheet(DARK_STYLESHEET if self._dark_mode else APP_STYLESHEET)
+        layout = QVBoxLayout(dialog)
+        layout.setContentsMargins(28, 26, 28, 24)
+        layout.setSpacing(12)
+
+        title = QLabel("拓扑序设计器")
+        title.setObjectName("aboutTitle")
+        version = QLabel("版本 2.0.0  ·  高级算法原理实践")
+        version.setObjectName("aboutVersion")
+        description = QLabel(
+            "用关系图理解先后约束，探索多种拓扑顺序，"
+            "并完成课程先修关系和阶段规划分析。"
         )
+        description.setObjectName("aboutDescription")
+        description.setWordWrap(True)
+        close_button = QPushButton("知道了")
+        close_button.setProperty("role", "primary")
+        close_button.setFixedWidth(96)
+        close_button.clicked.connect(dialog.accept)
+
+        layout.addWidget(title)
+        layout.addWidget(version)
+        layout.addSpacing(5)
+        layout.addWidget(description)
+        layout.addSpacing(13)
+        footer = QHBoxLayout()
+        footer.addStretch()
+        footer.addWidget(close_button)
+        layout.addLayout(footer)
+        return dialog
 
     def open_manual(self) -> None:
         manual_path = Path(__file__).resolve().parents[2] / "docs" / "使用说明.md"

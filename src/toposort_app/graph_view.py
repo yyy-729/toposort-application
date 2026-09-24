@@ -8,13 +8,14 @@ from unicodedata import east_asian_width
 
 import matplotlib
 import networkx as nx
+from matplotlib.backend_bases import MouseButton
 from matplotlib.backends.backend_agg import FigureCanvasAgg
 from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg
 from matplotlib.figure import Figure
 from matplotlib.patches import FancyArrowPatch, Patch
 from matplotlib.text import Text
 from matplotlib.transforms import Bbox
-from PySide6.QtCore import Signal
+from PySide6.QtCore import Qt, Signal
 
 from toposort_core import DirectedGraph
 
@@ -85,8 +86,12 @@ class GraphCanvas(FigureCanvasQTAgg):
         self._trace_candidates: set[str] = set()
         self._trace_selected = ""
         self._trace_completed: set[str] = set()
+        self._pan_start: tuple[float, float, tuple[float, float], tuple[float, float]] | None = None
+        self._view_limits: tuple[tuple[float, float], tuple[float, float]] | None = None
         self.mpl_connect("button_press_event", self._on_mouse_press)
+        self.mpl_connect("button_release_event", self._on_mouse_release)
         self.mpl_connect("motion_notify_event", self._on_mouse_move)
+        self.mpl_connect("scroll_event", self._on_scroll)
         self.show_placeholder()
 
     @property
@@ -170,6 +175,8 @@ class GraphCanvas(FigureCanvasQTAgg):
         self._trace_candidates = set()
         self._trace_selected = ""
         self._trace_completed = set()
+        self._pan_start = None
+        self._view_limits = None
         self.draw_idle()
 
     def draw_graph(
@@ -395,6 +402,8 @@ class GraphCanvas(FigureCanvasQTAgg):
         axis.set_xlim(min(x_values) - 0.6, max(x_values) + 0.6)
         axis.set_ylim(min(y_values) - 0.6, max(y_values) + 0.6)
         axis.set_autoscale_on(False)
+        if not export:
+            self._view_limits = (axis.get_xlim(), axis.get_ylim())
 
         count = self._graph.node_count
         if export:
@@ -524,6 +533,23 @@ class GraphCanvas(FigureCanvasQTAgg):
         return closest
 
     def _on_mouse_press(self, event: object) -> None:
+        axis = getattr(event, "inaxes", None)
+        if axis is None or not self._has_graph:
+            return
+        if getattr(event, "dblclick", False) and self._view_limits is not None:
+            axis.set_xlim(*self._view_limits[0])
+            axis.set_ylim(*self._view_limits[1])
+            self.draw_idle()
+            return
+        if getattr(event, "button", MouseButton.LEFT) == MouseButton.RIGHT:
+            x = getattr(event, "x", None)
+            y = getattr(event, "y", None)
+            if x is not None and y is not None:
+                self._pan_start = (x, y, axis.get_xlim(), axis.get_ylim())
+                self.setCursor(Qt.CursorShape.ClosedHandCursor)
+            return
+        if getattr(event, "button", MouseButton.LEFT) != MouseButton.LEFT:
+            return
         if self._trace_candidates or self._trace_selected or self._trace_completed:
             return
         closest = self._closest_node(event)
@@ -534,7 +560,35 @@ class GraphCanvas(FigureCanvasQTAgg):
         self.node_selected.emit(self._selected_node)
 
     def _on_mouse_move(self, event: object) -> None:
+        if self._pan_start is not None and getattr(event, "inaxes", None) is not None:
+            axis = event.inaxes
+            x, y, x_limits, y_limits = self._pan_start
+            delta_x = (event.x - x) / axis.bbox.width * (x_limits[1] - x_limits[0])
+            delta_y = (event.y - y) / axis.bbox.height * (y_limits[1] - y_limits[0])
+            axis.set_xlim(x_limits[0] - delta_x, x_limits[1] - delta_x)
+            axis.set_ylim(y_limits[0] - delta_y, y_limits[1] - delta_y)
+            self.draw_idle()
+            return
         self.setToolTip(self._closest_node(event))
+
+    def _on_mouse_release(self, event: object) -> None:
+        if getattr(event, "button", None) == MouseButton.RIGHT:
+            self._pan_start = None
+            self.unsetCursor()
+
+    def _on_scroll(self, event: object) -> None:
+        axis = getattr(event, "inaxes", None)
+        x = getattr(event, "xdata", None)
+        y = getattr(event, "ydata", None)
+        step = getattr(event, "step", 0)
+        if not self._has_graph or axis is None or x is None or y is None or step == 0:
+            return
+        scale = 0.85 if step > 0 else 1.15
+        x_min, x_max = axis.get_xlim()
+        y_min, y_max = axis.get_ylim()
+        axis.set_xlim(x - (x - x_min) * scale, x + (x_max - x) * scale)
+        axis.set_ylim(y - (y - y_min) * scale, y + (y_max - y) * scale)
+        self.draw_idle()
 
     def export(self, path: str | Path) -> None:
         if not self._has_graph:

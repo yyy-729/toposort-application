@@ -9,10 +9,12 @@ from types import SimpleNamespace
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
+from PySide6.QtGui import QPalette
 from PySide6.QtWidgets import QApplication
 
 from toposort_app.graph_view import GraphCanvas
 from toposort_app.main_window import DEFAULT_SAMPLE, MainWindow
+from toposort_app.theme import make_palette
 from toposort_core import DirectedGraph, parse_relations, solve_text
 
 
@@ -142,6 +144,39 @@ class GuiTests(unittest.TestCase):
 
         window.copy_results()
         self.assertIn("拓扑排序结果", QApplication.clipboard().text())
+        window.close()
+
+    def test_light_and_dark_popup_and_about_palettes_have_contrast(self) -> None:
+        window = MainWindow()
+        window.toggle_theme(False)
+        popup = window.layout_combo.view()
+        self.assertEqual(
+            popup.palette().color(QPalette.ColorRole.Base).name(),
+            make_palette(False).color(QPalette.ColorRole.Base).name(),
+        )
+        light_about = window._build_about_dialog()
+        self.assertEqual(
+            light_about.palette().color(QPalette.ColorRole.WindowText).name(),
+            "#18243b",
+        )
+
+        window.toggle_theme(True)
+        self.assertEqual(
+            popup.palette().color(QPalette.ColorRole.Base).name(),
+            make_palette(True).color(QPalette.ColorRole.Base).name(),
+        )
+        dark_about = window._build_about_dialog()
+        self.assertEqual(
+            dark_about.palette().color(QPalette.ColorRole.WindowText).name(),
+            "#ebf1fb",
+        )
+        window.toggle_theme(False)
+        window.close()
+
+    def test_graph_uses_direct_mouse_controls_without_generic_toolbar(self) -> None:
+        window = MainWindow()
+        self.assertFalse(hasattr(window, "graph_toolbar"))
+        self.assertTrue(window.graph_canvas.has_graph is False)
         window.close()
 
     def test_large_result_is_paged_without_losing_export_or_copy(self) -> None:

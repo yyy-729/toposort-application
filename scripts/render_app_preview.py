@@ -48,13 +48,31 @@ def main() -> int:
         for _ in range(trace_step):
             window._next_trace_step()
     window.show()
+    review_state = os.environ.get("TOPOSORT_PREVIEW_STATE", "")
+    about_dialog = None
 
     def capture() -> None:
-        window.grab().save(str(output), "PNG")
+        target = window
+        if review_state == "layout_popup":
+            target = window.layout_combo.view()
+        elif review_state == "about" and about_dialog is not None:
+            target = about_dialog
+        target.grab().save(str(output), "PNG")
+        if about_dialog is not None:
+            about_dialog.close()
         window.close()
         app.quit()
 
-    QTimer.singleShot(900, capture)
+    def show_review_state() -> None:
+        nonlocal about_dialog
+        if review_state == "layout_popup":
+            window.layout_combo.showPopup()
+        elif review_state == "about":
+            about_dialog = window._build_about_dialog()
+            about_dialog.show()
+        QTimer.singleShot(450, capture)
+
+    QTimer.singleShot(450, show_review_state)
     return app.exec()
 
 

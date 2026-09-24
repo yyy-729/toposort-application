@@ -10,6 +10,7 @@ from types import SimpleNamespace
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
+from matplotlib.backend_bases import MouseButton
 from matplotlib.patches import FancyArrowPatch
 from PySide6.QtWidgets import QApplication
 
@@ -115,6 +116,28 @@ class GraphReadabilityTests(unittest.TestCase):
         canvas.set_trace_highlight()
         self.assertFalse(canvas._trace_candidates)
         self.assertEqual(canvas._trace_selected, "")
+
+    def test_mouse_zoom_pan_and_double_click_reset_replace_toolbar(self) -> None:
+        canvas = GraphCanvas()
+        canvas.draw_graph(DirectedGraph.from_edges([("A", "B"), ("B", "C")]))
+        axis = canvas.figure.axes[0]
+        original_x = axis.get_xlim()
+        original_y = axis.get_ylim()
+
+        canvas._on_scroll(SimpleNamespace(inaxes=axis, xdata=1.0, ydata=0.0, step=1))
+        self.assertLess(axis.get_xlim()[1] - axis.get_xlim()[0], original_x[1] - original_x[0])
+
+        canvas._on_mouse_press(
+            SimpleNamespace(inaxes=axis, button=MouseButton.RIGHT, x=100, y=100)
+        )
+        canvas._on_mouse_move(SimpleNamespace(inaxes=axis, x=120, y=110))
+        self.assertNotEqual(axis.get_xlim(), original_x)
+        canvas._on_mouse_release(SimpleNamespace(button=MouseButton.RIGHT))
+        self.assertIsNone(canvas._pan_start)
+
+        canvas._on_mouse_press(SimpleNamespace(inaxes=axis, dblclick=True))
+        self.assertEqual(axis.get_xlim(), original_x)
+        self.assertEqual(axis.get_ylim(), original_y)
 
 
 if __name__ == "__main__":
