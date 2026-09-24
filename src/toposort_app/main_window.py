@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from matplotlib.backends.backend_qtagg import NavigationToolbar2QT
-from PySide6.QtCore import Qt, QThreadPool, QUrl
+from PySide6.QtCore import Qt, QThreadPool, QTimer, QUrl
 from PySide6.QtGui import QAction, QDesktopServices, QKeySequence
 from PySide6.QtWidgets import (
     QApplication,
@@ -34,9 +34,11 @@ from toposort_core import (
     DirectedGraph,
     SolveResult,
     StagePlanResult,
+    TraceResult,
     export_result,
     format_result,
     parse_relations,
+    trace_graph,
 )
 
 from .graph_view import GraphCanvas
@@ -90,6 +92,10 @@ class MainWindow(QMainWindow):
         self._active_task: SolverTask | None = None
         self._active_plan_task: PlannerTask | None = None
         self._current_plan: StagePlanResult | None = None
+        self._current_trace: TraceResult | None = None
+        self._trace_position = 0
+        self._trace_timer = QTimer(self)
+        self._trace_timer.setInterval(1000)
         self._dark_mode = False
 
         self._build_actions()
@@ -366,6 +372,9 @@ class MainWindow(QMainWindow):
         self.result_tabs.addTab(result_page, "排序结果")
         self.result_tabs.addTab(self.insight_editor, "智能分析")
         self.result_tabs.addTab(self._build_planner_tab(), "阶段规划")
+        self.trace_tab_index = self.result_tabs.addTab(
+            self._build_trace_tab(), "过程回放"
+        )
         layout.addWidget(self.result_tabs, 1)
         return panel
 
@@ -393,6 +402,34 @@ class MainWindow(QMainWindow):
         self.plan_editor.setPlaceholderText("运行分析后，设置每阶段可安排的最大节点数，再生成规划")
         layout.addLayout(controls)
         layout.addWidget(self.plan_editor, 1)
+        return page
+
+    def _build_trace_tab(self) -> QWidget:
+        page = QWidget()
+        layout = QVBoxLayout(page)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(8)
+        controls = QHBoxLayout()
+        self.trace_step_label = QLabel("步骤 0 / 0")
+        self.trace_previous_button = QPushButton("上一步")
+        self.trace_next_button = QPushButton("下一步")
+        self.trace_play_button = QPushButton("播放")
+        for button in (
+            self.trace_previous_button,
+            self.trace_next_button,
+            self.trace_play_button,
+        ):
+            button.setEnabled(False)
+        controls.addWidget(self.trace_step_label)
+        controls.addStretch()
+        controls.addWidget(self.trace_previous_button)
+        controls.addWidget(self.trace_next_button)
+        controls.addWidget(self.trace_play_button)
+        self.trace_editor = QPlainTextEdit()
+        self.trace_editor.setReadOnly(True)
+        self.trace_editor.setPlaceholderText("运行分析后，在这里查看一个拓扑序的生成过程")
+        layout.addLayout(controls)
+        layout.addWidget(self.trace_editor, 1)
         return page
 
     def _connect_signals(self) -> None:
@@ -426,11 +463,17 @@ class MainWindow(QMainWindow):
         self.plan_button.clicked.connect(self.run_stage_plan)
         self.export_plan_button.clicked.connect(self.export_stage_plan)
         self.capacity_spin.valueChanged.connect(self._invalidate_stage_plan)
+        self.trace_previous_button.clicked.connect(self._previous_trace_step)
+        self.trace_next_button.clicked.connect(self._next_trace_step)
+        self.trace_play_button.clicked.connect(self._toggle_trace_playback)
+        self._trace_timer.timeout.connect(self._advance_trace_playback)
+        self.result_tabs.currentChanged.connect(self._on_result_tab_changed)
 
     def _mark_input_changed(self) -> None:
         had_analysis = self._current_graph is not None or bool(self.result_editor.toPlainText())
         self._current_result = None
         self._current_graph = None
+        self._clear_trace()
         self._invalidate_stage_plan()
         self.plan_button.setEnabled(False)
         self.result_pager.hide()
@@ -461,6 +504,7 @@ class MainWindow(QMainWindow):
         self._current_graph = None
         self._current_result = None
         self._current_file = None
+        self._clear_trace()
         self._invalidate_stage_plan()
         self.plan_button.setEnabled(False)
         self.result_pager.hide()
@@ -509,6 +553,8 @@ class MainWindow(QMainWindow):
             self.graph_canvas.show_placeholder("输入格式有误", "请根据左侧提示修改关系数据")
             self._current_graph = None
             self._current_result = None
+            self._clear_trace()
+            self.trace_editor.setPlainText("输入格式有误，请修正后重新运行。\n\n" + message)
             self._invalidate_stage_plan()
             self.plan_button.setEnabled(False)
             self.result_pager.hide()
@@ -521,6 +567,7 @@ class MainWindow(QMainWindow):
 
         assert parsed.graph is not None
         self._current_graph = parsed.graph
+        self._clear_trace()
         self._invalidate_stage_plan()
         self.plan_button.setEnabled(False)
         self.graph_canvas.draw_graph(parsed.graph)
@@ -573,6 +620,9 @@ class MainWindow(QMainWindow):
                 self.status_pill.setText("达到上限")
 
         self._populate_insights(result)
+        if self._current_graph is not None:
+            self._current_trace = trace_graph(self._current_graph)
+            self._show_trace_step()
         if result.insights is None:
             total: str | int = "-"
             levels: str | int = "-"
@@ -634,9 +684,128 @@ class MainWindow(QMainWindow):
     def _on_solve_failed(self, message: str) -> None:
         self._set_busy(False)
         self._active_task = None
+        self._clear_trace()
         self.status_pill.setText("运行失败")
         self.statusBar().showMessage("运行失败")
         QMessageBox.critical(self, "运行失败", message)
+
+    def _clear_trace(self) -> None:
+        self._trace_timer.stop()
+        self._current_trace = None
+        self._trace_position = 0
+        self.trace_step_label.setText("步骤 0 / 0")
+        self.trace_editor.clear()
+        self.trace_play_button.setText("播放")
+        self.trace_previous_button.setEnabled(False)
+        self.trace_next_button.setEnabled(False)
+        self.trace_play_button.setEnabled(False)
+        self.graph_canvas.set_trace_highlight()
+
+    def _show_trace_step(self) -> None:
+        traced = self._current_trace
+        if traced is None:
+            return
+        if traced.cycle:
+            self.trace_editor.setPlainText(
+                "关系中存在有向环，无法继续拓扑排序。\n\n"
+                f"检测到的环：{' -> '.join(traced.cycle)}"
+            )
+            return
+
+        total = len(traced.steps)
+        position = self._trace_position
+        self.trace_step_label.setText(f"步骤 {position} / {total}")
+        self.trace_previous_button.setEnabled(position > 0)
+        self.trace_next_button.setEnabled(position < total)
+        self.trace_play_button.setEnabled(total > 0)
+        lines = ["拓扑排序过程回放", "按节点名称选择当前最靠前的可选节点。", ""]
+        if position == 0:
+            candidates = traced.steps[0].candidates if traced.steps else ()
+            selected = ""
+            completed: tuple[str, ...] = ()
+            lines.extend(
+                [
+                    "准备开始。",
+                    f"当前零入度候选：{'、'.join(candidates) if candidates else '无'}",
+                    "点击“下一步”或“播放”开始。",
+                ]
+            )
+        else:
+            step = traced.steps[position - 1]
+            candidates = step.candidates
+            selected = step.selected
+            completed = step.partial_order
+            changes = (
+                "；".join(
+                    f"{node}：{before} → {after}"
+                    for node, before, after in step.indegree_changes
+                )
+                if step.indegree_changes
+                else "无"
+            )
+            lines.extend(
+                [
+                    f"第 {position} 步：选出 {selected}",
+                    f"选择前的零入度候选：{'、'.join(candidates)}",
+                    f"受影响节点的入度：{changes}",
+                    "本步新进入候选："
+                    + ("、".join(step.newly_available) if step.newly_available else "无"),
+                    f"当前顺序：{' → '.join(completed)}",
+                ]
+            )
+            if position == total:
+                lines.extend(["", "演示完成：该顺序满足全部先后关系。"])
+                self._stop_trace_playback()
+        self.trace_editor.setPlainText("\n".join(lines))
+        if self.result_tabs.currentIndex() == self.trace_tab_index:
+            self.node_detail.setText("过程回放：蓝色已完成、绿色当前可选、红色为本步选择")
+            self.graph_canvas.set_trace_highlight(candidates, selected, completed)
+
+    def _previous_trace_step(self) -> None:
+        if self._current_trace is None or self._trace_position == 0:
+            return
+        self._stop_trace_playback()
+        self._trace_position -= 1
+        self._show_trace_step()
+
+    def _next_trace_step(self) -> None:
+        if self._current_trace is None or self._trace_position >= len(self._current_trace.steps):
+            return
+        self._stop_trace_playback()
+        self._trace_position += 1
+        self._show_trace_step()
+
+    def _advance_trace_playback(self) -> None:
+        if self._current_trace is None or self._trace_position >= len(self._current_trace.steps):
+            self._stop_trace_playback()
+            return
+        self._trace_position += 1
+        self._show_trace_step()
+
+    def _toggle_trace_playback(self) -> None:
+        if self._trace_timer.isActive():
+            self._stop_trace_playback()
+            return
+        if self._current_trace is None or not self._current_trace.steps:
+            return
+        if self._trace_position >= len(self._current_trace.steps):
+            self._trace_position = 0
+        self._trace_timer.start()
+        self.trace_play_button.setText("暂停")
+        self._advance_trace_playback()
+
+    def _stop_trace_playback(self) -> None:
+        self._trace_timer.stop()
+        self.trace_play_button.setText("播放")
+
+    def _on_result_tab_changed(self, index: int) -> None:
+        if index == self.trace_tab_index and self._current_trace is not None:
+            self.node_detail.setText("过程回放：蓝色已完成、绿色当前可选、红色为本步选择")
+            self._show_trace_step()
+        else:
+            self._stop_trace_playback()
+            self.graph_canvas.set_trace_highlight()
+            self.node_detail.setText("点击图中节点，可高亮它的全部前置和后续节点")
 
     def _invalidate_stage_plan(self) -> None:
         self._current_plan = None

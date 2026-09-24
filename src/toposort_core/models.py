@@ -160,3 +160,31 @@ class StagePlanResult:
     @property
     def has_cycle(self) -> bool:
         return bool(self.cycle)
+
+
+@dataclass(frozen=True, slots=True)
+class TraceStep:
+    """一次确定性拓扑选择前后的状态。"""
+
+    candidates: tuple[str, ...]
+    selected: str
+    indegree_changes: tuple[tuple[str, int, int], ...]
+    newly_available: tuple[str, ...]
+    partial_order: tuple[str, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class TraceResult:
+    """一个拓扑序的可回放生成过程。"""
+
+    steps: tuple[TraceStep, ...]
+    final_order: tuple[str, ...]
+    node_count: int
+    edge_count: int
+    cycle: tuple[str, ...] = ()
+    errors: tuple[ValidationIssue, ...] = ()
+    warnings: tuple[ValidationIssue, ...] = ()
+
+    @property
+    def is_successful(self) -> bool:
+        return not self.errors and not self.cycle

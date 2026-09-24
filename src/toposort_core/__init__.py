@@ -18,6 +18,8 @@ from .models import (
     ParseResult,
     SolveResult,
     StagePlanResult,
+    TraceResult,
+    TraceStep,
     ValidationIssue,
 )
 from .parser import parse_relations
@@ -28,6 +30,7 @@ from .planning import (
     plan_text,
 )
 from .solver import find_cycle, solve_graph, solve_text
+from .tracing import trace_graph, trace_text
 
 __all__ = [
     "DirectedGraph",
@@ -38,6 +41,8 @@ __all__ = [
     "MAX_EXACT_PLAN_NODE_LIMIT",
     "SolveResult",
     "StagePlanResult",
+    "TraceResult",
+    "TraceStep",
     "ValidationIssue",
     "__version__",
     "analyze_graph",
@@ -55,4 +60,6 @@ __all__ = [
     "has_unique_topological_order",
     "solve_graph",
     "solve_text",
+    "trace_graph",
+    "trace_text",
 ]

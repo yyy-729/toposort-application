@@ -93,6 +93,29 @@ class GraphReadabilityTests(unittest.TestCase):
 
         self.assertEqual(canvas.selected_node, long_name)
 
+    def test_trace_highlight_shows_candidates_and_selected_node(self) -> None:
+        canvas = GraphCanvas()
+        graph = DirectedGraph.from_edges([("A", "C"), ("B", "C")])
+        canvas.draw_graph(graph)
+        canvas.set_trace_highlight(("A", "B"))
+
+        colors = dict(
+            zip(canvas._network.nodes, canvas._node_colors(canvas._network), strict=True)
+        )
+        self.assertEqual(colors["A"], "#22A06B")
+        self.assertEqual(colors["B"], "#22A06B")
+
+        canvas.set_trace_highlight(("B",), "A", ("A",))
+        colors = dict(
+            zip(canvas._network.nodes, canvas._node_colors(canvas._network), strict=True)
+        )
+        self.assertEqual(colors["A"], "#E5484D")
+        self.assertEqual(colors["B"], "#22A06B")
+
+        canvas.set_trace_highlight()
+        self.assertFalse(canvas._trace_candidates)
+        self.assertEqual(canvas._trace_selected, "")
+
 
 if __name__ == "__main__":
     unittest.main()

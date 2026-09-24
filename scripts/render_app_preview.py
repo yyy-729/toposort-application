@@ -39,8 +39,14 @@ def main() -> int:
         window.result_tabs.setCurrentIndex(2)
     if os.environ.get("TOPOSORT_PREVIEW_DARK") == "1":
         window.theme_button.setChecked(True)
-    if os.environ.get("TOPOSORT_PREVIEW_TAB") == "insights":
+    preview_tab = os.environ.get("TOPOSORT_PREVIEW_TAB")
+    if preview_tab == "insights":
         window.result_tabs.setCurrentIndex(1)
+    elif preview_tab == "trace":
+        window.result_tabs.setCurrentIndex(window.trace_tab_index)
+        trace_step = int(os.environ.get("TOPOSORT_PREVIEW_TRACE_STEP", "2"))
+        for _ in range(trace_step):
+            window._next_trace_step()
     window.show()
 
     def capture() -> None:

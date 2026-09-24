@@ -208,6 +208,60 @@ class GuiTests(unittest.TestCase):
         self.assertFalse(window.export_graph_button.isEnabled())
         window.close()
 
+    def test_trace_tab_replays_result_and_resets_on_input_change(self) -> None:
+        window = MainWindow()
+        text = "<A,C>\n<B,C>\n<C,D>"
+        parsed = parse_relations(text)
+        assert parsed.graph is not None
+        window.input_editor.setPlainText(text)
+        window._current_graph = parsed.graph
+        window.graph_canvas.draw_graph(parsed.graph)
+        solved = solve_text(text)
+        window._on_solve_finished(solved)
+        window.result_tabs.setCurrentIndex(window.trace_tab_index)
+
+        self.assertIn("当前零入度候选：A、B", window.trace_editor.toPlainText())
+        self.assertTrue(window.trace_next_button.isEnabled())
+        window.trace_next_button.click()
+        self.assertIn("第 1 步：选出 A", window.trace_editor.toPlainText())
+        self.assertEqual(window.graph_canvas._trace_selected, "A")
+        self.assertEqual(window.graph_canvas._trace_completed, {"A"})
+
+        window.trace_play_button.click()
+        self.assertTrue(window._trace_timer.isActive())
+        window.result_tabs.setCurrentIndex(0)
+        self.assertFalse(window._trace_timer.isActive())
+        self.assertFalse(window.graph_canvas._trace_candidates)
+        window.result_tabs.setCurrentIndex(window.trace_tab_index)
+        window.trace_play_button.click()
+        self.assertTrue(window._trace_timer.isActive())
+        window.trace_play_button.click()
+        self.assertFalse(window._trace_timer.isActive())
+        while window.trace_next_button.isEnabled():
+            window.trace_next_button.click()
+        self.assertEqual(window._current_trace.final_order, solved.orders[0])
+        self.assertIn("演示完成", window.trace_editor.toPlainText())
+
+        window.input_editor.setPlainText(text + "\n<D,E>")
+        self.assertIsNone(window._current_trace)
+        self.assertFalse(window.trace_play_button.isEnabled())
+        self.assertFalse(window.graph_canvas._trace_candidates)
+        window.close()
+
+    def test_cycle_trace_explains_why_playback_cannot_start(self) -> None:
+        window = MainWindow()
+        text = "<A,B>\n<B,A>"
+        parsed = parse_relations(text)
+        assert parsed.graph is not None
+        window._current_graph = parsed.graph
+        window.graph_canvas.draw_graph(parsed.graph)
+        window._on_solve_finished(solve_text(text))
+        window.result_tabs.setCurrentIndex(window.trace_tab_index)
+
+        self.assertIn("存在有向环", window.trace_editor.toPlainText())
+        self.assertFalse(window.trace_play_button.isEnabled())
+        window.close()
+
 
 if __name__ == "__main__":
     unittest.main()

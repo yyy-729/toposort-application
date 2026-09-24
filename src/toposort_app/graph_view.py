@@ -82,6 +82,9 @@ class GraphCanvas(FigureCanvasQTAgg):
         self._dark_mode = False
         self._has_graph = False
         self._stage_lookup: dict[str, int] = {}
+        self._trace_candidates: set[str] = set()
+        self._trace_selected = ""
+        self._trace_completed: set[str] = set()
         self.mpl_connect("button_press_event", self._on_mouse_press)
         self.mpl_connect("motion_notify_event", self._on_mouse_move)
         self.show_placeholder()
@@ -164,6 +167,9 @@ class GraphCanvas(FigureCanvasQTAgg):
         self._cycle = ()
         self._redundant_edges = set()
         self._stage_lookup = {}
+        self._trace_candidates = set()
+        self._trace_selected = ""
+        self._trace_completed = set()
         self.draw_idle()
 
     def draw_graph(
@@ -177,6 +183,9 @@ class GraphCanvas(FigureCanvasQTAgg):
         self._redundant_edges = set(redundant_edges)
         self._selected_node = ""
         self._stage_lookup = {}
+        self._trace_candidates = set()
+        self._trace_selected = ""
+        self._trace_completed = set()
         self._render()
 
     def set_layout_mode(self, mode: str) -> None:
@@ -203,6 +212,21 @@ class GraphCanvas(FigureCanvasQTAgg):
         self._stage_lookup = {
             node: index for index, stage in enumerate(stages or ()) for node in stage
         }
+        if self._graph is not None:
+            self._render()
+
+    def set_trace_highlight(
+        self,
+        candidates: tuple[str, ...] = (),
+        selected: str = "",
+        completed: tuple[str, ...] = (),
+    ) -> None:
+        """为算法回放着色，空参数恢复原有节点颜色。"""
+        self._trace_candidates = set(candidates)
+        self._trace_selected = selected
+        self._trace_completed = set(completed)
+        if candidates or selected or completed:
+            self._selected_node = ""
         if self._graph is not None:
             self._render()
 
@@ -268,6 +292,18 @@ class GraphCanvas(FigureCanvasQTAgg):
 
     def _node_colors(self, network: nx.DiGraph) -> list[str]:
         cycle_nodes = set(self._cycle)
+        if self._trace_candidates or self._trace_selected or self._trace_completed:
+            colors = []
+            for node in network.nodes:
+                if node in cycle_nodes or node == self._trace_selected:
+                    colors.append("#E5484D")
+                elif node in self._trace_candidates:
+                    colors.append("#22A06B")
+                elif node in self._trace_completed:
+                    colors.append("#3157D5")
+                else:
+                    colors.append(self._colors()["unrelated"])
+            return colors
         if self._selected_node:
             ancestors = nx.ancestors(network, self._selected_node)
             descendants = nx.descendants(network, self._selected_node)
@@ -320,6 +356,12 @@ class GraphCanvas(FigureCanvasQTAgg):
         return colors, widths
 
     def _legend_items(self) -> list[Patch]:
+        if self._trace_candidates or self._trace_selected or self._trace_completed:
+            return [
+                Patch(facecolor="#3157D5", label="已完成"),
+                Patch(facecolor="#22A06B", label="当前可选"),
+                Patch(facecolor="#E5484D", label="本步选择"),
+            ]
         if self._selected_node:
             return [
                 Patch(facecolor="#00A6C7", label="当前节点"),
@@ -482,6 +524,8 @@ class GraphCanvas(FigureCanvasQTAgg):
         return closest
 
     def _on_mouse_press(self, event: object) -> None:
+        if self._trace_candidates or self._trace_selected or self._trace_completed:
+            return
         closest = self._closest_node(event)
         if not closest:
             return
