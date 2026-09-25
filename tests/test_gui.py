@@ -10,7 +10,7 @@ from types import SimpleNamespace
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from PySide6.QtGui import QPalette
-from PySide6.QtWidgets import QApplication
+from PySide6.QtWidgets import QApplication, QTextBrowser
 
 from toposort_app.graph_view import GraphCanvas
 from toposort_app.main_window import DEFAULT_SAMPLE, MainWindow
@@ -177,6 +177,35 @@ class GuiTests(unittest.TestCase):
         window = MainWindow()
         self.assertFalse(hasattr(window, "graph_toolbar"))
         self.assertTrue(window.graph_canvas.has_graph is False)
+        window.close()
+
+    def test_manual_opens_as_in_app_dialog(self) -> None:
+        window = MainWindow()
+        manual = window._build_manual_dialog(
+            Path(__file__).resolve().parents[1] / "docs" / "使用说明.md"
+        )
+        browser = manual.findChild(QTextBrowser)
+        self.assertIsNotNone(browser)
+        assert browser is not None
+        self.assertIn("阶段规划", browser.toPlainText())
+        manual.close()
+        window.close()
+
+    def test_sample_menu_loads_bundled_course_data(self) -> None:
+        window = MainWindow()
+        menu = window.sample_button.menu()
+        self.assertIsNotNone(menu)
+        assert menu is not None
+        action = next(
+            action for action in menu.actions() if action.text() == "培养方案课程关系（部分）"
+        )
+        action.trigger()
+
+        expected = (
+            Path(__file__).resolve().parents[1] / "examples" / "curriculum_2024_verified.txt"
+        ).read_text(encoding="utf-8")
+        self.assertEqual(window.input_editor.toPlainText(), expected)
+        self.assertFalse(window.export_result_button.isEnabled())
         window.close()
 
     def test_large_result_is_paged_without_losing_export_or_copy(self) -> None:

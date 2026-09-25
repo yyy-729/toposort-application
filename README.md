@@ -6,6 +6,8 @@
 
 ## 组员快速入口
 
+只想测试程序：打开[Windows 单文件 EXE](downloads/拓扑序设计器.exe)页面，点击下载原始文件，保存后双击运行；不需要安装 Python。测试步骤见[测试人员验收清单](docs/测试人员验收清单.md)。
+
 第一次操作程序请先看[使用说明](docs/使用说明.md)，其中有从启动到导出的完整步骤，以及新增功能和界面数字的解释。程序顶部也可以点击**帮助 → 使用说明**。
 
 撰写需求、设计和项目报告时，优先查看：
@@ -16,6 +18,7 @@
 - [项目现状](项目现状.md)：当前已经完成的功能、验证结果和后续事项
 - [优化方向](优化方向文档.md)：最终高分功能规划与停止扩展边界
 - [完整应用交付说明](docs/完整应用交付说明.md)：运行环境、功能结构和交接方法
+- [EXE交付说明](docs/EXE交付说明.md)：免安装Python版本的使用和构建方法
 - [使用说明](docs/使用说明.md)：运行程序、理解结果页、阶段规划和导出文件
 - [测试人员验收清单](docs/测试人员验收清单.md)：人工测试范围和记录要求
 - [项目报告模板](软件算法综合设计项目报告模板.doc)：报告负责人使用的原始模板
@@ -81,13 +84,17 @@
 
 本机普通 `python` 可能指向其他版本，请统一使用 `py -3.12`。
 
+## 无需 Python 的 Windows EXE
+
+仓库中的[拓扑序设计器.exe](downloads/拓扑序设计器.exe)是约 76 MB 的单文件测试版，内置 Python 依赖、使用说明和示例数据。下载原始文件后直接双击运行，无需下载整个仓库；本地重新构建产生的`dist/`仍被 Git 忽略。使用方法、校验值和已验证范围见[EXE交付说明](docs/EXE交付说明.md)。
+
 ## 最简单的运行方法
 
 1. 安装 Python 3.12。
 2. 双击 `安装依赖.bat`。
 3. 双击 `启动应用.bat`。
 
-`启动应用.bat`现在会立即启动图形程序并退出，加载时显示启动画面，不再留下等待中的终端。若希望完全不出现终端，可直接双击`launcher.vbs`。`run_app.bat`保留为显示 Python 错误的排查入口。
+作业目录只保留`启动应用.bat`一个应用启动入口。它会立即启动图形程序并退出，加载时显示启动画面；若启动失败，可在终端运行`scripts\run_app.bat`查看错误。
 
 也可以在 VS Code 的 PowerShell 终端执行：
 
@@ -183,26 +190,34 @@ toposort-application/
 │     ├─ graph_view.py         # 关系图绘制与节点交互
 │     ├─ workers.py            # 后台计算任务
 │     ├─ theme.py              # 深浅色界面样式
+│     ├─ resources.py          # 源码和 EXE 内置资源路径
 │     └─ main.py               # 图形界面启动入口
 ├─ tests/                      # 核心、命令行、界面和启动测试
 ├─ examples/                   # 基础、任务书图1和已核实培养方案示例数据
+├─ assets/app.ico              # 桌面应用图标
+├─ downloads/拓扑序设计器.exe    # 供组员下载测试的单文件 Windows EXE
 ├─ docs/
 │  ├─ images/                  # 正式界面与关系图截图
 │  ├─ 技术一核心功能说明.md
 │  ├─ 完整应用交付说明.md
+│  ├─ EXE交付说明.md
 │  ├─ 测试人员验收清单.md
 │  ├─ 使用说明.md
 │  └─ 培养方案数据核对说明.md
 ├─ scripts/
-│  └─ render_app_preview.py    # 界面预览图生成脚本
+│  ├─ render_app_preview.py    # 界面预览图生成脚本
+│  ├─ build_exe.py             # 单文件 EXE 构建脚本
+│  ├─ create_app_icon.py       # 应用图标生成脚本
+│  ├─ exe_entry.py             # EXE 启动入口
+│  ├─ toposort_app.spec        # PyInstaller 构建配置
+│  ├─ install_dependencies.bat # 内部依赖安装脚本
+│  ├─ run_app.bat              # 故障排查用控制台入口
+│  └─ run_app.pyw              # 图形模式启动与错误提示
 ├─ 安装依赖.bat                # Windows双击安装入口
 ├─ 启动应用.bat                # Windows双击启动入口
-├─ launcher.vbs                # 完全无终端的启动入口
-├─ run_app.pyw                 # 图形模式启动与错误提示
-├─ run_app.bat                 # 故障排查用的控制台入口
-├─ install_dependencies.bat    # 实际执行依赖安装的脚本
 ├─ requirements.txt            # 运行依赖
 ├─ requirements-dev.txt        # 测试与代码检查依赖
+├─ requirements-build.txt      # EXE 构建依赖
 ├─ pyproject.toml              # Python项目配置
 ├─ 高级算法原理实践-实践说明书.md
 ├─ 高级算法原理实践-任务说明书.md
@@ -221,4 +236,4 @@ toposort-application/
 - `examples/taskbook_figure1.txt`是任务书图1对应的关系数据。
 - `examples/curriculum_2024_verified.txt`是依据培养方案明确先修要求核实的部分课程关系。
 - `docs/images/`中的图片可以直接用于项目报告和阶段展示。
-- `.venv/`、缓存、构建产物、临时截图、`本地视频材料/`及原始`测试数据/`、`测试结果/`已被Git忽略，不会自动上传到公开仓库。
+- `downloads/`只放本次交给组员测试的 EXE；`.venv/`、缓存、`dist/`和`build/`构建目录、临时截图、`本地视频材料/`及原始`测试数据/`、`测试结果/`已被Git忽略，不会自动上传到公开仓库。

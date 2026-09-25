@@ -8,9 +8,10 @@ from collections.abc import Sequence
 from pathlib import Path
 
 from PySide6.QtCore import Qt, QTimer
-from PySide6.QtGui import QColor, QFont, QFontDatabase, QLinearGradient, QPainter, QPixmap
+from PySide6.QtGui import QColor, QFont, QFontDatabase, QIcon, QLinearGradient, QPainter, QPixmap
 from PySide6.QtWidgets import QApplication, QMessageBox, QSplashScreen
 
+from .resources import resource_path
 from .theme import APP_STYLESHEET, make_palette
 
 
@@ -42,6 +43,9 @@ def create_application(argv: Sequence[str] | None = None) -> QApplication:
     app.setOrganizationName("高级算法原理实践项目组")
     app.setStyle("Fusion")
     app.setFont(QFont(load_chinese_font(), 10))
+    icon_path = resource_path("assets/app.ico")
+    if icon_path.is_file():
+        app.setWindowIcon(QIcon(str(icon_path)))
     app.setPalette(make_palette(False))
     app.setStyleSheet(APP_STYLESHEET)
     return app

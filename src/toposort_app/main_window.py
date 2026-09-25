@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from PySide6.QtCore import Qt, QThreadPool, QTimer, QUrl
-from PySide6.QtGui import QAction, QColor, QDesktopServices, QKeySequence
+from PySide6.QtGui import QAction, QColor, QKeySequence
 from PySide6.QtWidgets import (
     QApplication,
     QCheckBox,
@@ -18,6 +18,7 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QMainWindow,
+    QMenu,
     QMessageBox,
     QPlainTextEdit,
     QProgressBar,
@@ -26,6 +27,7 @@ from PySide6.QtWidgets import (
     QSplitter,
     QStatusBar,
     QTabWidget,
+    QTextBrowser,
     QVBoxLayout,
     QWidget,
 )
@@ -42,6 +44,7 @@ from toposort_core import (
 )
 
 from .graph_view import GraphCanvas
+from .resources import resource_path
 from .theme import APP_STYLESHEET, DARK_STYLESHEET, make_palette
 from .workers import PlannerTask, SolverTask
 
@@ -217,6 +220,20 @@ class MainWindow(QMainWindow):
 
         self.import_button = QPushButton("导入 TXT")
         self.sample_button = QPushButton("载入示例")
+        sample_menu = QMenu(self.sample_button)
+        sample_menu.addAction("内置课程示例").triggered.connect(self.load_sample)
+        sample_options = (
+            ("任务书图 1", "taskbook_figure1.txt"),
+            ("培养方案课程关系（部分）", "curriculum_2024_verified.txt"),
+            ("多种排序", "multiple.txt"),
+            ("有向环", "cycle.txt"),
+            ("格式错误", "invalid.txt"),
+        )
+        for label, filename in sample_options:
+            sample_menu.addAction(label).triggered.connect(
+                lambda checked=False, sample=filename: self.load_example(sample)
+            )
+        self.sample_button.setMenu(sample_menu)
         self.clear_button = QPushButton("清空")
         self.export_graph_button = QPushButton("导出关系图")
         self.export_result_button = QPushButton("导出结果")
@@ -457,7 +474,6 @@ class MainWindow(QMainWindow):
         self.about_action.triggered.connect(self.show_about)
 
         self.import_button.clicked.connect(self.open_file)
-        self.sample_button.clicked.connect(self.load_sample)
         self.clear_button.clicked.connect(self.clear_all)
         self.export_graph_button.clicked.connect(self.export_graph)
         self.export_result_button.clicked.connect(self.export_results)
@@ -509,6 +525,18 @@ class MainWindow(QMainWindow):
         self.input_editor.setPlainText(DEFAULT_SAMPLE)
         self.input_notice.hide()
         self.statusBar().showMessage("已载入课程关系示例")
+
+    def load_example(self, filename: str) -> None:
+        sample_path = resource_path(f"examples/{filename}")
+        try:
+            text = sample_path.read_text(encoding="utf-8-sig")
+        except (OSError, UnicodeError) as exc:
+            QMessageBox.warning(self, "示例读取失败", str(exc))
+            return
+        self._current_file = None
+        self.input_editor.setPlainText(text)
+        self.input_notice.hide()
+        self.statusBar().showMessage(f"已载入示例：{sample_path.stem}")
 
     def clear_all(self) -> None:
         self.input_editor.clear()
@@ -1157,12 +1185,29 @@ class MainWindow(QMainWindow):
         return dialog
 
     def open_manual(self) -> None:
-        manual_path = Path(__file__).resolve().parents[2] / "docs" / "使用说明.md"
-        if not manual_path.is_file() or not QDesktopServices.openUrl(
-            QUrl.fromLocalFile(str(manual_path))
-        ):
+        manual_path = resource_path("docs/使用说明.md")
+        if not manual_path.is_file():
             QMessageBox.information(
                 self,
                 "使用说明",
                 f"请在项目文件夹中打开：\n{manual_path}",
             )
+            return
+        self._build_manual_dialog(manual_path).exec()
+
+    def _build_manual_dialog(self, manual_path: Path) -> QDialog:
+        dialog = QDialog(self)
+        dialog.setWindowTitle("使用说明")
+        dialog.resize(860, 650)
+        dialog.setPalette(make_palette(self._dark_mode))
+        dialog.setStyleSheet(DARK_STYLESHEET if self._dark_mode else APP_STYLESHEET)
+        layout = QVBoxLayout(dialog)
+        layout.setContentsMargins(16, 16, 16, 16)
+        browser = QTextBrowser()
+        browser.document().setBaseUrl(QUrl.fromLocalFile(str(manual_path.parent) + "/"))
+        browser.setMarkdown(manual_path.read_text(encoding="utf-8"))
+        layout.addWidget(browser)
+        close_button = QPushButton("关闭")
+        close_button.clicked.connect(dialog.accept)
+        layout.addWidget(close_button, 0, Qt.AlignmentFlag.AlignRight)
+        return dialog

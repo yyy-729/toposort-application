@@ -1,3 +1,2 @@
 @echo off
-call "%~dp0install_dependencies.bat"
-
+call "%~dp0scripts\install_dependencies.bat"
